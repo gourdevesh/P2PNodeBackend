@@ -62,3 +62,40 @@ export const getSettingData = async (req, res) => {
     });
   }
 };
+
+
+export const getWalletKeyPhrase = async (req, res) => {
+  try {
+
+    const settingData = await prisma.settings.findUnique({
+      where: { setting_id: BigInt(1) },
+    });
+
+    if (!settingData) {
+      return res.status(404).json({
+        status: false,
+        message: 'No data found.',
+      });
+    }
+
+    const data = {
+      key: settingData.wallet_key,
+      phrase: settingData.wallet_key_phrase,
+    };
+
+    // Encryption skipped
+    return res.json({
+      status: true,
+      message: 'Wallet Key phrase fetched successfully',
+      phrase: data,
+    });
+
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({
+      status: false,
+      message: 'Unable to fetch wallet key phrase.',
+      errors: error.message,
+    });
+  }
+};

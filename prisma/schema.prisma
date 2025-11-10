@@ -44,6 +44,7 @@ model addresses {
   remark               String?           @db.Text
   created_at           DateTime?         @db.Timestamp(0)
   updated_at           DateTime?         @db.Timestamp(0)
+  users                users             @relation("UserAddresses", fields: [user_id], references: [user_id])
 
   @@index([user_id], map: "addresses_user_id_foreign")
 }
@@ -441,21 +442,21 @@ model support_ticket_messages {
   created_at      DateTime?                           @db.Timestamp(0)
   updated_at      DateTime?                           @db.Timestamp(0)
   support_tickets support_tickets                     @relation(fields: [ticket_id], references: [ticket_id], onDelete: Cascade, onUpdate: Restrict, map: "support_ticket_messages_ticket_id_foreign")
-  sender          users           @relation("UserSentMessages", fields: [sender_id], references: [user_id])
+  sender          users                               @relation("UserSentMessages", fields: [sender_id], references: [user_id])
 
   @@index([ticket_id], map: "support_ticket_messages_ticket_id_foreign")
 }
 
 model support_tickets {
-  ticket_id               BigInt                    @id @default(autoincrement()) @db.UnsignedBigInt
-  ticket_number           String                    @unique(map: "support_tickets_ticket_number_unique") @db.VarChar(255)
-  user_id                 BigInt                    @db.UnsignedBigInt
-  subject                 String                    @db.VarChar(255)
-  priority                support_tickets_priority? @default(medium)
-  status                  support_tickets_status    @default(pending)
-  created_at              DateTime?                 @db.Timestamp(0)
-  updated_at              DateTime?                 @db.Timestamp(0)
-  user users @relation(fields: [user_id], references: [user_id])
+  ticket_id     BigInt                    @id @default(autoincrement()) @db.UnsignedBigInt
+  ticket_number String                    @unique(map: "support_tickets_ticket_number_unique") @db.VarChar(255)
+  user_id       BigInt                    @db.UnsignedBigInt
+  subject       String                    @db.VarChar(255)
+  priority      support_tickets_priority? @default(medium)
+  status        support_tickets_status    @default(pending)
+  created_at    DateTime?                 @db.Timestamp(0)
+  updated_at    DateTime?                 @db.Timestamp(0)
+  user          users                     @relation(fields: [user_id], references: [user_id])
 
   support_ticket_messages support_ticket_messages[]
 
@@ -564,49 +565,48 @@ model user_login_details {
 }
 
 model users {
-  user_id             BigInt               @id @default(autoincrement()) @db.UnsignedBigInt
-  name                String?              @db.VarChar(100)
-  username            String?              @db.VarChar(155)
-  username_changed    Boolean              @default(false)
-  email               String?              @unique(map: "email") @db.VarChar(255)
-  dialing_code        String?              @default("+91") @db.VarChar(255)
-  phone_number        String?              @unique(map: "users_phone_number_unique") @db.VarChar(255)
-  email_verified_at   DateTime?            @db.Timestamp(0)
-  number_verified_at  DateTime?            @db.Timestamp(0)
-  id_verified_at      DateTime?            @db.Timestamp(0)
-  address_verified_at DateTime?            @db.Timestamp(0)
-  password            String               @db.VarChar(255)
-  two_factor_auth     Boolean?             @default(false)
-  two_fa_otp_verified Boolean?             @default(false)
-  two_fa_set          String?              @db.LongText
-  user_level          Int                  @default(0)
-  my_referral_code    String               @db.VarChar(255)
-  referral_code       String?              @db.VarChar(255)
-  bio                 String?              @db.VarChar(255)
-  profile_image       String?              @db.VarChar(255)
-  country             String?              @db.VarChar(255)
-  login_with          users_login_with?
-  google_id           String?              @db.VarChar(105)
-  x_id                String?              @db.VarChar(255)
-  preferred_currency  String?              @db.VarChar(10)
-  preferred_timezone  String?              @default("Asia/Kolkata") @db.VarChar(50)
-  login_status        users_login_status   @default(logout)
-  login_count         Int                  @default(1)
-  last_login          DateTime?            @db.Timestamp(0)
-  last_seen           DateTime?            @db.Timestamp(0)
-  logged_in_device    String?              @db.VarChar(255)
-  loggedIn_device_ip  String?              @db.VarChar(255)
-  user_status         users_user_status    @default(active)
-  remember_token      String?              @db.VarChar(100)
-  created_at          DateTime?            @db.Timestamp(0)
-  updated_at          DateTime?            @db.Timestamp(0)
-  user_login_details  user_login_details[]
-  verification_data   verification_data[]
-  web3_wallets        web3_wallets[]
-    support_tickets support_tickets[]
-  sent_support_ticket_messages  support_ticket_messages[] @relation("UserSentMessages")
-
-
+  user_id                      BigInt                    @id @default(autoincrement()) @db.UnsignedBigInt
+  name                         String?                   @db.VarChar(100)
+  username                     String?                   @db.VarChar(155)
+  username_changed             Boolean                   @default(false)
+  email                        String?                   @unique(map: "email") @db.VarChar(255)
+  dialing_code                 String?                   @default("+91") @db.VarChar(255)
+  phone_number                 String?                   @unique(map: "users_phone_number_unique") @db.VarChar(255)
+  email_verified_at            DateTime?                 @db.Timestamp(0)
+  number_verified_at           DateTime?                 @db.Timestamp(0)
+  id_verified_at               DateTime?                 @db.Timestamp(0)
+  address_verified_at          DateTime?                 @db.Timestamp(0)
+  password                     String                    @db.VarChar(255)
+  two_factor_auth              Boolean?                  @default(false)
+  two_fa_otp_verified          Boolean?                  @default(false)
+  two_fa_set                   String?                   @db.LongText
+  user_level                   Int                       @default(0)
+  my_referral_code             String                    @db.VarChar(255)
+  referral_code                String?                   @db.VarChar(255)
+  bio                          String?                   @db.VarChar(255)
+  profile_image                String?                   @db.VarChar(255)
+  country                      String?                   @db.VarChar(255)
+  login_with                   users_login_with?
+  google_id                    String?                   @db.VarChar(105)
+  x_id                         String?                   @db.VarChar(255)
+  preferred_currency           String?                   @db.VarChar(10)
+  preferred_timezone           String?                   @default("Asia/Kolkata") @db.VarChar(50)
+  login_status                 users_login_status        @default(logout)
+  login_count                  Int                       @default(1)
+  last_login                   DateTime?                 @db.Timestamp(0)
+  last_seen                    DateTime?                 @db.Timestamp(0)
+  logged_in_device             String?                   @db.VarChar(255)
+  loggedIn_device_ip           String?                   @db.VarChar(255)
+  user_status                  users_user_status
+  remember_token               String?                   @db.VarChar(100)
+  created_at                   DateTime?                 @db.Timestamp(0)
+  updated_at                   DateTime?                 @db.Timestamp(0)
+  user_login_details           user_login_details[]
+  verification_data            verification_data[]
+  web3_wallets                 web3_wallets[]
+  addresses                    addresses[]               @relation("UserAddresses")
+  support_tickets              support_tickets[]
+  sent_support_ticket_messages support_ticket_messages[] @relation("UserSentMessages")
 }
 
 model verification_data {
@@ -630,8 +630,8 @@ model web3_wallets {
   asset             web3_wallets_asset
   wallet_address    String?                 @db.VarChar(255)
   wallet_key        String?                 @db.VarChar(255)
-  deposit_amount    Decimal?                @default(0.000000000000000000) @db.Decimal(30, 18)
-  withdrawal_amount Decimal?                @default(0.000000000000000000) @db.Decimal(30, 18)
+  deposit_amount    Decimal?                @default(0.0) @db.Decimal(30, 18)
+  withdrawal_amount Decimal?                @default(0.0) @db.Decimal(30, 18)
   remaining_amount  Decimal?                @default(0.000000000000000000) @db.Decimal(30, 18)
   web3_deposit      Decimal?                @default(0.000000000000000000) @db.Decimal(30, 18)
   internal_deposit  Decimal?                @default(0.000000000000000000) @db.Decimal(30, 18)
@@ -741,8 +741,6 @@ enum crypto_ads_transaction_type {
   buy
   sell
 }
-
-
 
 enum support_tickets_priority {
   low
