@@ -1,5 +1,6 @@
 // adminController.js
-import prisma from '../config/prismaClient.js';
+import bcrypt from "bcryptjs";
+import prisma from "../../config/prismaClient.js";
 export const adminDetail = async (req, res) => {
   try {
     const adminId = req.admin?.admin_id; // Assuming admin is attached to req
@@ -129,6 +130,111 @@ export const getAllAdmin = async (req, res) => {
       status: false,
       message: "Something went wrong while fetching all admin's details.",
       errors: err.message,
+    });
+  }
+};
+
+
+export const changePassword = async (req, res) => {
+  try {
+    const { current_password, new_password } = req.body;
+    console.log(req.admin.admin_id);
+
+    if (!current_password || !new_password) {
+      return res.status(422).json({
+        status: false,
+        message: "validation failed",
+        errors: { message: "current_password and new_password are required" },
+      });
+    }
+
+    // ✅ Fetch admin with password
+    const admin = await prisma.admins.findUnique({
+      where: { admin_id: BigInt(req.admin.admin_id) }, // 👈 use correct unique field
+
+      select: { admin_id: true, password: true }, // ensure password is included
+    });
+
+    if (!admin) {
+      return res.status(404).json({
+        status: false,
+        message: "Admin not found",
+      });
+    }
+
+    // Check current password
+    const validPassword = await bcrypt.compare(current_password, admin.password);
+    if (!validPassword) {
+      return res.status(422).json({
+        status: false,
+        message: "validation failed",
+        errors: { current_password: ["Invalid current password."] },
+      });
+    }
+
+    // Password validation
+    if (new_password.length < 8) {
+      return res.status(422).json({
+        status: false,
+        message: "validation failed",
+        errors: { new_password: ["The password must be at least 8 characters."] },
+      });
+    }
+    if (!/[A-Z]/.test(new_password)) {
+      return res.status(422).json({
+        status: false,
+        message: "validation failed",
+        errors: { new_password: ["The password must contain at least one Uppercase letter."] },
+      });
+    }
+    if (!/[a-z]/.test(new_password)) {
+      return res.status(422).json({
+        status: false,
+        message: "validation failed",
+        errors: { new_password: ["The password must contain at least one lowercase letter."] },
+      });
+    }
+    if (!/[0-9]/.test(new_password)) {
+      return res.status(422).json({
+        status: false,
+        message: "validation failed",
+        errors: { new_password: ["The password must contain at least one number."] },
+      });
+    }
+    if (!/[!@#$%^&*(),.?":{}|<>_]/.test(new_password)) {
+      return res.status(422).json({
+        status: false,
+        message: "validation failed",
+        errors: { new_password: ["The password must contain at least one special character."] },
+      });
+    }
+
+    // Check if same as current
+    const isSame = await bcrypt.compare(new_password, admin.password);
+    if (isSame) {
+      return res.status(422).json({
+        status: false,
+        message: "validation failed",
+        errors: { new_password: ["The new password can not be the same as the current password."] },
+      });
+    }
+
+    // Update password
+    const hashedPassword = await bcrypt.hash(new_password, 10);
+    await prisma.admins.update({
+      where: { admin_id: admin.admin_id },
+      data: { password: hashedPassword },
+    });
+
+    return res.status(200).json({
+      status: true,
+      message: "Password changed successfully!",
+    });
+  } catch (error) {
+    return res.status(500).json({
+      status: false,
+      message: "Something went wrong",
+      errors: error.message,
     });
   }
 };

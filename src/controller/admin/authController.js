@@ -2,12 +2,10 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { validationResult, body } from 'express-validator';
 import * as UAParser from 'ua-parser-js'; // Fixed import
-import { PrismaClient } from '@prisma/client';
-const prisma = new PrismaClient();
 import { v4 as uuidv4 } from 'uuid'
 import { RateLimiterMemory } from 'rate-limiter-flexible';
-import { convertBigIntToString } from "../config/convertBigIntToString.js";
-
+import prisma from '../../config/prismaClient.js';
+import { convertBigIntToString } from '../../config/convertBigIntToString.js';
 const limiter = new RateLimiterMemory({
   points: 5, // 5 attempts
   duration: 900, // 15 minutes

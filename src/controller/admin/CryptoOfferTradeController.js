@@ -1,5 +1,5 @@
-import prisma from '../config/prismaClient.js';
-import { convertBigIntToString } from "../config/convertBigIntToString.js";
+import prisma from '../../config/prismaClient.js';
+import { convertBigIntToString } from '../../config/convertBigIntToString.js';
 
 export const getTradeHistory = async (req, res) => {
     const admin = req.admin; // assuming middleware sets admin data

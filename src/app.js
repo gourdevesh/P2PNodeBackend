@@ -15,9 +15,7 @@ app.use(express.json());
 app.get("/", (req, res) => {
     res.send("API is running...");
 });
-
-// Mount user routes at base path
-// app.use("/api", userRoutes);  // optional: /api prefix
+ 
 app.use("/api", adminRouter);  // optional: /api prefix
 
 

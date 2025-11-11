@@ -1,12 +1,12 @@
-import prisma from '../config/prismaClient.js';
-import { convertBigIntToString } from "../config/convertBigIntToString.js";
-import { getCountryData } from '../config/getCountryData.js';
-import { formatUserDetails } from '../config/formatUserDetails.js';
+import prisma from '../../config/prismaClient.js';
+import { getCountryData } from '../../config/getCountryData.js';
+import { formatUserDetails } from '../../config/formatUserDetails.js';
 import dayjs from "dayjs";
 import relativeTime from "dayjs/plugin/relativeTime.js";
 import utc from "dayjs/plugin/utc.js";
 import timezone from "dayjs/plugin/timezone.js";
-import { pagination } from '../config/pagination.js';
+import { pagination } from '../../config/pagination.js';
+import { convertBigIntToString } from '../../config/convertBigIntToString.js';
 
 dayjs.extend(relativeTime);
 dayjs.extend(utc);

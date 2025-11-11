@@ -1,6 +1,6 @@
 import moment from 'moment-timezone';
-import prisma from '../config/prismaClient.js';
-import { convertBigIntToString } from '../config/convertBigIntToString.js';
+import prisma from '../../config/prismaClient.js';
+import { convertBigIntToString } from '../../config/convertBigIntToString.js';
 import { validationResult } from 'express-validator';
 export const getPaymentDetails = async (req, res) => {
     try {

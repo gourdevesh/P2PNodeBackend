@@ -2,8 +2,8 @@ import dayjs from "dayjs";
 import relativeTime from "dayjs/plugin/relativeTime.js";
 import utc from "dayjs/plugin/utc.js";
 import timezone from "dayjs/plugin/timezone.js";
-import prisma from '../config/prismaClient.js';
-import { convertBigIntToString } from "../config/convertBigIntToString.js";
+import prisma from '../../config/prismaClient.js';
+import { convertBigIntToString } from '../../config/convertBigIntToString.js';
 
 
 
@@ -147,6 +147,189 @@ const safeData = convertBigIntToString(idDetails);
       status: false,
       message: "Unable to fetch the id verification details.",
       errors: error.message,
+    });
+  }
+};
+
+
+export const verifyAddress = async (req, res) => {
+  try {
+    const { id, status, remark } = req.body;
+
+    // Validation
+    if (!id || isNaN(id)) {
+      return res.status(422).json({
+        status: false,
+        message: "Validation failed.",
+        errors: { id: ["The id field is required and must be numeric."] },
+      });
+    }
+
+    if (!["pending", "verified", "reject"].includes(status)) {
+      return res.status(422).json({
+        status: false,
+        message: "Validation failed.",
+        errors: { status: ["The status must be pending, verified, or reject."] },
+      });                                   
+    }
+
+    if (status === "reject" && (!remark || remark.trim() === "")) {
+      return res.status(422).json({
+        status: false,
+        message: "Validation failed.",
+        errors: { remark: ["The remark field is required when status is reject."] },
+      });
+    }
+
+    // Begin transaction
+    const result = await prisma.$transaction(async (tx) => {
+      const addressVerificationDetails = await tx.address_verifications.findUnique({
+        where: { addVer_id: Number(id) },
+      });
+
+      if (!addressVerificationDetails) {
+        throw new Error("No Id details found for the given id.");
+      }
+
+      const finalRemark = remark || "Address Verified.";
+
+      await tx.address_verifications.update({
+        where: { addVer_id: Number(id) },
+        data: {
+          status: status,
+          remark: finalRemark,
+        },
+      });
+
+      // Update user table
+      if (status === "verified") {
+        await tx.users.update({
+          where: { user_id: addressVerificationDetails.user_id },
+          data: { address_verified_at: new Date() },
+        });
+      } else {
+        await tx.users.update({
+          where: { user_id: addressVerificationDetails.user_id },
+          data: { address_verified_at: null },
+        });
+      }
+
+      const title =
+        status === "verified"
+          ? "Address verified successfully"
+          : "Address verification rejected";
+
+      const message =
+        status === "verified"
+          ? "Your address is successfully verified."
+          : finalRemark;
+
+      await tx.notifications.create({
+        data: {
+          user_id: addressVerificationDetails.user_id,
+          title: title,
+          message: message,
+          type: "account_activity",
+          is_read: false,
+        },
+      });
+    });
+
+    return res.status(200).json({
+      status: true,
+      message: "Address verification status updated successfully.",
+    });
+  } catch (error) {
+    return res.status(500).json({
+      status: false,
+      message: "Unable to verify the address verification.",
+      errors: error.message,
+    });
+  }
+};
+
+export const verifyId = async (req, res) => {
+  const admin = req.admin; // assuming middleware sets admin user
+
+  try {
+    const { id, status, remark } = req.body;
+
+    // 🔹 Validate request
+    if (!id || isNaN(id)) {
+      return res.status(422).json({ status: false, message: 'Invalid or missing ID' });
+    }
+
+    if (!['pending', 'verified', 'reject'].includes(status)) {
+      return res.status(422).json({ status: false, message: 'Invalid status value' });
+    }
+
+    if (status === 'reject' && (!remark || remark.trim() === '')) {
+      return res.status(422).json({ status: false, message: 'Remark is required when status is reject' });
+    }
+
+    // 🔹 Begin transaction
+    const result = await prisma.$transaction(async (tx) => {
+      const idDetails = await tx.addresses.findUnique({
+        where: { address_id: Number(id) },
+      });
+
+      if (!idDetails) {
+        throw new Error('No Id details found for the given id.');
+      }
+
+      const updateRemark = remark || 'ID Verified.';
+
+      // 🔹 Update address status & remark
+      await tx.addresses.update({
+        where: { address_id: Number(id) },
+        data: {
+          status,
+          remark: updateRemark,
+        },
+      });
+
+      // 🔹 Update user verification date
+      await tx.users.update({
+        where: { user_id: idDetails.user_id },
+        data: {
+          id_verified_at: status === 'verified' ? new Date() : null,
+        },
+      });
+
+      // 🔹 Notification
+      const title =
+        status === 'verified'
+          ? 'ID verified successfully'
+          : 'ID verification rejected';
+
+      const message =
+        status === 'verified'
+          ? 'Your ID is successfully verified. Now you can trade and create wallet.'
+          : updateRemark;
+
+      await tx.notifications.create({
+        data: {
+          user_id: idDetails.user_id,
+          title,
+          message,
+          type: 'account_activity',
+          is_read: false,
+        },
+      });
+
+      return true;
+    });
+
+    return res.status(200).json({
+      status: true,
+      message: 'Id verification status updated successfully.',
+    });
+  } catch (err) {
+    console.error('verifyId error:', err);
+    return res.status(500).json({
+      status: false,
+      message: 'Unable to verify the id.',
+      errors: err.message,
     });
   }
 };

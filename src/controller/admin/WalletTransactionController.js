@@ -1,7 +1,7 @@
-import prisma from '../config/prismaClient.js';
-import { convertBigIntToString } from "../config/convertBigIntToString.js";
-import { pagination } from "../config/pagination.js";
+import prisma from '../../config/prismaClient.js';
+import { pagination } from "../../config/pagination.js";
 import { parse } from "date-fns"; // ✅ correct
+import { convertBigIntToString } from '../../config/convertBigIntToString.js';
 export const getWalletDetails = async (req, res) => {
   try {
     const admin = req.admin; // middleware must set admin (like Laravel $this->admin)

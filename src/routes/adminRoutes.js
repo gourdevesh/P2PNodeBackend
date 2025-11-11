@@ -1,16 +1,17 @@
 import express from "express";
 import { body } from "express-validator";
-import { loginAdmin, registerAdmin } from "../admin/authController.js";
-import { adminDetail, getAllAdmin } from "../Admin/adminController.js";
+import { loginAdmin, registerAdmin } from "../controller/admin/authController.js";
+import { adminDetail, changePassword, getAllAdmin } from "../controller/admin/adminController.js";
 import { authenticateAdmin } from "../middleware/authMiddleware.js";
-import { getSettingData, getWalletKeyPhrase } from "../admin/systemController.js";
-import { getAllUsersTickets, getParticularTicket } from "../admin/supportTicketController.js";
-import { getAddressVerificationDetails, getIdVerificationDetails } from "../admin/idAddressVerificationController.js";
-import { getUser,loginHistory, updateUserStatus, userDetail } from "../admin/userDetailsController.js";
-import { getTransactionDetails, getWalletDetails } from "../admin/WalletTransactionController.js";
-import { getTradeHistory } from "../admin/CryptoOfferTradeController.js";
-import { getPaymentDetails, getUpiDetails, updatePaymentDetailsStatus, updateUpiDetailsStatus } from "../admin/PaymentMethodController.js";
+import { getSettingData, getWalletKeyPhrase, updateSettingData } from "../controller/admin/systemController.js";
+import { getAllUsersTickets, getParticularTicket, closeTicket } from "../controller/admin/supportTicketController.js";
+import { getAddressVerificationDetails, getIdVerificationDetails, verifyAddress, verifyId } from "../controller/admin/idAddressVerificationController.js";
+import { getUser, loginHistory, updateUserStatus, userDetail } from "../controller/admin/userDetailsController.js";
+import { getTransactionDetails, getWalletDetails } from "../controller/admin/WalletTransactionController.js";
+import { getTradeHistory } from "../controller/admin/CryptoOfferTradeController.js";
+import { getPaymentDetails, getUpiDetails, updatePaymentDetailsStatus, updateUpiDetailsStatus } from "../controller/admin/PaymentMethodController.js";
 import { validateUpdatePaymentStatus } from "../middleware/validation.js";
+import { getWebsiteDetails, updateNameUrlTitle } from "../controller/admin/WebsiteController.js";
 
 const router = express.Router();
 
@@ -64,13 +65,16 @@ router.get("/admin/trade/get-trade-history", authenticateAdmin, getTradeHistory)
 router.get("/admin/account-details/get-payment-details", authenticateAdmin, getPaymentDetails);
 router.get("/admin/account-details/get-upi-details", authenticateAdmin, getUpiDetails);
 router.get("/admin/setting/get-walletKeyPhrase", authenticateAdmin, getWalletKeyPhrase);
-router.post("/admin/account-details/update-payment-details-status", authenticateAdmin,validateUpdatePaymentStatus, updatePaymentDetailsStatus);
-router.post("/admin/account-details/update-upi-details-status", authenticateAdmin,validateUpdatePaymentStatus, updateUpiDetailsStatus);
+router.post("/admin/account-details/update-payment-details-status", authenticateAdmin, validateUpdatePaymentStatus, updatePaymentDetailsStatus);
+router.post("/admin/account-details/update-upi-details-status", authenticateAdmin, validateUpdatePaymentStatus, updateUpiDetailsStatus);
 router.post("/admin/user/update-user-status", authenticateAdmin, updateUserStatus);
-
-
-
-
+router.post("/admin/profile/change-password", authenticateAdmin, changePassword);
+router.post("/admin/setting/update-setting-data", authenticateAdmin, updateSettingData);
+router.post("/admin/verification/verify-address", authenticateAdmin, verifyAddress);
+router.post("/admin/verification/verify-id", authenticateAdmin, verifyId);
+router.post("/admin/support-tickets/close-ticket", authenticateAdmin, closeTicket);
+router.post("/admin/website/update-nameTitleUrl", authenticateAdmin, updateNameUrlTitle);
+router.get("/admin/website/details", authenticateAdmin, getWebsiteDetails);
 
 
 export default router;

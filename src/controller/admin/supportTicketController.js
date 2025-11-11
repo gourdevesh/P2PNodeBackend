@@ -1,9 +1,9 @@
-import prisma from '../config/prismaClient.js';
+import prisma from '../../config/prismaClient.js';
 import dayjs from "dayjs";
 import relativeTime from "dayjs/plugin/relativeTime.js";
 import utc from "dayjs/plugin/utc.js";
 import timezone from "dayjs/plugin/timezone.js";
-import { convertBigIntToString } from "../config/convertBigIntToString.js";
+import { convertBigIntToString } from '../../config/convertBigIntToString.js';
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -184,3 +184,53 @@ export const getParticularTicket = async (req, res) => {
     }
 };
 
+
+export const closeTicket = async (req, res) => {
+    try {
+        const admin = req.admin; // assuming middleware sets admin user
+        const { ticket_id } = req.body;
+
+        // 🔹 Validation
+        if (!ticket_id) {
+            return res.status(422).json({
+                status: false,
+                message: 'Validation failed',
+                errors: { ticket_id: ['ticket_id is required'] },
+            });
+        }
+
+        // 🔹 Check if ticket exists
+        const ticket = await prisma.support_tickets.findUnique({
+            where: { ticket_id: ticket_id },
+        });
+
+        if (!ticket) {
+            return res.status(404).json({
+                status: false,
+                message: 'Support ticket not found.',
+            });
+        }
+
+        // 🔹 Update ticket status
+        const updatedTicket = await prisma.support_tickets.update({
+            where: { ticket_id: ticket_id },
+            data: { status: 'closed' },
+        });
+
+        if (updatedTicket) {
+            return res.status(200).json({
+                status: true,
+                message: 'Support ticket closed successfully.',
+            });
+        } else {
+            throw new Error('Unable to close support ticket');
+        }
+    } catch (err) {
+        console.error('closeTicket error:', err);
+        return res.status(500).json({
+            status: false,
+            message: 'Failed to close the support ticket.',
+            errors: err.message,
+        });
+    }
+};
