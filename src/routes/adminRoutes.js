@@ -1,23 +1,56 @@
 import express from "express";
+import multer from "multer";
+import fs from "fs";
+import path from "path";
 import { body } from "express-validator";
-import { loginAdmin, registerAdmin } from "../controller/admin/authController.js";
-import { adminDetail, changePassword, getAllAdmin } from "../controller/admin/adminController.js";
+import { loginAdmin, logOut, registerAdmin } from "../controller/admin/authController.js";
+import { adminDetail, changePassword, getAllAdmin, updateProfile } from "../controller/admin/adminController.js";
 import { authenticateAdmin } from "../middleware/authMiddleware.js";
 import { getSettingData, getWalletKeyPhrase, updateSettingData } from "../controller/admin/systemController.js";
 import { getAllUsersTickets, getParticularTicket, closeTicket } from "../controller/admin/supportTicketController.js";
 import { getAddressVerificationDetails, getIdVerificationDetails, verifyAddress, verifyId } from "../controller/admin/idAddressVerificationController.js";
 import { getUser, loginHistory, updateUserStatus, userDetail } from "../controller/admin/userDetailsController.js";
 import { getTransactionDetails, getWalletDetails } from "../controller/admin/WalletTransactionController.js";
-import { getTradeHistory } from "../controller/admin/CryptoOfferTradeController.js";
+import { getCryptoAd, getTradeHistory } from "../controller/admin/CryptoOfferTradeController.js";
 import { getPaymentDetails, getUpiDetails, updatePaymentDetailsStatus, updateUpiDetailsStatus } from "../controller/admin/PaymentMethodController.js";
 import { validateUpdatePaymentStatus } from "../middleware/validation.js";
-import { getWebsiteDetails, updateNameUrlTitle } from "../controller/admin/WebsiteController.js";
+import { getWebsiteDetails, updateLogoFavicon, updateNameUrlTitle, uploadMultiple } from "../controller/admin/WebsiteController.js";
+import moment from "moment";
+import { getAdminAssets } from "../controller/admin/AdminAssetController.js";
+import { get } from "http";
+import { getCountries, getCountriesCurrency, getCountriesDialingCode, getTimezone } from "../controller/CountryController.js";
+import { deleteNotification, storeNotification } from "../controller/admin/AdminNotificationController.js";
 
 const router = express.Router();
+const storageDir = path.join("storage", "app", "public", "images", "profile_image", "admin");
+fs.mkdirSync(storageDir, { recursive: true });
+
+// ✅ Multer config (Laravel-style)
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, storageDir),
+  filename: (req, file, cb) => {
+    const adminId = req.admin?.id || "unknown";
+    const timestamp = moment().format("DDMMYYYYHHmm");
+    const ext = path.extname(file.originalname);
+    cb(null, `${adminId}_${timestamp}${ext}`);
+  },
+});
+
+export const upload = multer({
+  storage,
+  limits: { fileSize: 2 * 1024 * 1024 }, // 2MB
+  fileFilter: (req, file, cb) => {
+    const allowed = ["image/jpeg", "image/png", "image/jpg"];
+    if (!allowed.includes(file.mimetype)) {
+      return cb(new Error("Only jpeg, png, jpg formats are allowed."));
+    }
+    cb(null, true);
+  },
+});
 
 // Admin Register
 router.post(
-  "/auth/register",
+  "/admin/auth/register",
   [
     body("name").notEmpty().withMessage("Name is required"),
     body("email").isEmail().withMessage("Valid email is required"),
@@ -42,7 +75,7 @@ router.post(
 
 // Admin Login
 router.post(
-  "/auth/login",
+  "/admin/auth/login",
   [
     body("username").notEmpty().withMessage("Username (email or phone) is required"),
     body("password").notEmpty().withMessage("Password is required"),
@@ -75,6 +108,16 @@ router.post("/admin/verification/verify-id", authenticateAdmin, verifyId);
 router.post("/admin/support-tickets/close-ticket", authenticateAdmin, closeTicket);
 router.post("/admin/website/update-nameTitleUrl", authenticateAdmin, updateNameUrlTitle);
 router.get("/admin/website/details", authenticateAdmin, getWebsiteDetails);
-
+router.post("/admin/profile/update-profile", upload.single("profile_image"), authenticateAdmin, updateProfile);
+router.get("/admin/admin-wallet/get-assets-details", authenticateAdmin, getAdminAssets);
+router.get("/admin/crypto-advertisement/crypto-ad", authenticateAdmin, getCryptoAd);
+router.get("/countries/currency", authenticateAdmin, getCountriesCurrency);
+router.get("/countries/dialing-code", authenticateAdmin, getCountriesDialingCode);
+router.get("/countries/name", authenticateAdmin, getCountries);
+router.get("/countries/timezone", authenticateAdmin, getTimezone);
+router.post("/admin/website/update-logo-favicon", authenticateAdmin, uploadMultiple, updateLogoFavicon);
+router.post("/admin/notifications", authenticateAdmin, storeNotification);
+router.delete("/admin/delete-notifications/:id", authenticateAdmin, deleteNotification);
+router.delete("/admin/auth/logout", authenticateAdmin, logOut);
 
 export default router;

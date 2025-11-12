@@ -1,6 +1,8 @@
 // adminController.js
 import bcrypt from "bcryptjs";
 import prisma from "../../config/prismaClient.js";
+import path from "path";
+import fs from "fs";
 export const adminDetail = async (req, res) => {
   try {
     const adminId = req.admin?.admin_id; // Assuming admin is attached to req
@@ -138,8 +140,6 @@ export const getAllAdmin = async (req, res) => {
 export const changePassword = async (req, res) => {
   try {
     const { current_password, new_password } = req.body;
-    console.log(req.admin.admin_id);
-
     if (!current_password || !new_password) {
       return res.status(422).json({
         status: false,
@@ -234,6 +234,85 @@ export const changePassword = async (req, res) => {
     return res.status(500).json({
       status: false,
       message: "Something went wrong",
+      errors: error.message,
+    });
+  }
+};
+
+export const updateProfile = async (req, res) => {
+  const admin = req.admin; // set by middleware
+  if (!admin) {
+    return res.status(401).json({
+      status: false,
+      message: "Admin not authenticated",
+    });
+  }
+
+  try {
+    const { name, email } = req.body;
+    const imageFile = req.file;
+
+    // 🧩 Validation
+    if (!name || !email || !imageFile) {
+      return res.status(422).json({
+        status: false,
+        message: "Validation failed",
+        errors: {
+          name: !name ? "Name is required" : undefined,
+          email: !email ? "Email is required" : undefined,
+          profile_image: !imageFile ? "Profile image is required" : undefined,
+        },
+      });
+    }
+
+    // ✅ Check if email already exists (unique check)
+    const existingAdmin = await prisma.admins.findFirst({
+      where: {
+        email,
+        NOT: { admin_id: admin.admin_id },
+      },
+    });
+
+    if (existingAdmin) {
+      return res.status(422).json({
+        status: false,
+        message: "Email already in use.",
+      });
+    }
+
+    // 🧹 Delete old image (if exists)
+    if (admin.profile_image) {
+      const oldPath = path.join("storage", "app", "public", admin.profile_image);
+      if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
+    }
+
+    // ✅ Store only relative path from "images/..."
+    const relativePath = path.join("images", "profile_image", "admin", imageFile.filename).replace(/\\/g, "/");
+
+    // Update database
+    await prisma.admins.update({
+      where: { admin_id: admin.admin_id },
+      data: {
+        name,
+        email,
+        profile_image: relativePath, // save only relative path
+      },
+    });
+
+    // ✅ Build correct public URL (Laravel-style)
+    const baseUrl = `${req.protocol}://${req.get("host")}`;
+    const imageUrl = `${baseUrl}/storage/${relativePath}`;
+
+    return res.status(200).json({
+      status: true,
+      message: "Admin profile updated successfully.",
+      profile_imageUrl: imageUrl,
+    });
+  } catch (error) {
+    console.error("Error updating profile:", error);
+    return res.status(500).json({
+      status: false,
+      message: "Something went wrong.",
       errors: error.message,
     });
   }

@@ -143,6 +143,7 @@ model crypto_ads {
   avg_time              String?                     @db.VarChar(255)
   created_at            DateTime?                   @db.Timestamp(0)
   updated_at            DateTime?                   @db.Timestamp(0)
+  user users @relation(fields: [user_id], references: [user_id])
 
   @@index([user_id], map: "crypto_ads_user_id_foreign")
 }
@@ -607,6 +608,8 @@ model users {
   addresses                    addresses[]               @relation("UserAddresses")
   support_tickets              support_tickets[]
   sent_support_ticket_messages support_ticket_messages[] @relation("UserSentMessages")
+    crypto_ads       crypto_ads[]
+
 }
 
 model verification_data {

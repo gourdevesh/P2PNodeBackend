@@ -378,3 +378,49 @@ export const loginAdmin = async (req, res) => {
     });
   }
 };
+
+export const logOut = async (req, res) => {
+  const { admin_id } = req.admin;
+
+  try {
+    if (!admin_id) {
+      return res.status(401).json({
+        status: false,
+        message: "Admin not authenticated",
+      });
+    }
+
+    // 🔹 Start a Prisma transaction
+    await prisma.$transaction(async (tx) => {
+      // 1️⃣ Delete all active tokens for this admin
+      await tx.tokens.deleteMany({
+        where: { admin_id },
+      });
+
+      // 2️⃣ Update admin login status
+      await tx.admin.update({
+        where: { id: admin_id },
+        data: { login_status: "logout" },
+      });
+    });
+
+    return res.status(200).json({
+      status: true,
+      message: "Successfully logged out",
+    });
+
+  } catch (error) {
+    console.error("Admin logout failed:", {
+      error: error.message,
+      ip_address: req.ip,
+      device_information: req.headers["user-agent"],
+      request_data: req.body,
+    });
+
+    return res.status(500).json({
+      status: false,
+      message: "Error occurred during logout",
+      errors: error.message,
+    });
+  }
+};
