@@ -7,6 +7,7 @@ import swaggerUi from "swagger-ui-express";
 import fs from "fs";
 // import userRoutes from "./routes/userRoutes.js";
 import adminRouter from "./routes/adminRoutes.js";
+import usersRouter from "./routes/userRoutes.js";
 
 dotenv.config();
 
@@ -45,6 +46,8 @@ app.get("/", (req, res) => {
 
 // ✅ All your routes
 app.use("/api", adminRouter);
+app.use("/api", usersRouter);
+
 
 // 404 handler
 app.use((req, res) => {

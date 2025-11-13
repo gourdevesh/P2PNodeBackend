@@ -222,3 +222,243 @@ if (paymentMethod) {
     });
   }
 };
+export const updateCryptoAdStatus = async (req, res) => {
+  const admin = req.admin; // ✅ Admin set in auth middleware
+  const { crypto_ad_id, is_active } = req.body;
+  console.log(req.body)
+
+  try {
+ 
+
+    if (typeof is_active !== "boolean") {
+      return res.status(400).json({
+        status: false,
+        message: "Validation failed.",
+        errors: { is_active: ["is_active must be boolean (true/false)"] },
+      });
+    }
+
+    // ✅ Transaction start
+    const result = await prisma.$transaction(async (tx) => {
+      // Find crypto ad by ID
+      const cryptoAdDetails = await tx.crypto_ads.findUnique({
+        where: { crypto_ad_id },
+      });
+
+      if (!cryptoAdDetails) {
+        throw new Error("Crypto Advertisement not found for the provided crypto ad id.");
+      }
+
+      if (cryptoAdDetails.is_active === is_active) {
+        throw new Error(
+          `Crypto Advertisement is already ${is_active ? "active" : "inactive"}.`
+        );
+      }
+
+      if (cryptoAdDetails.is_accepted) {
+        throw new Error(
+          "The selected ad is currently involved in an active trade. Please try again once the trade is completed."
+        );
+      }
+
+      // ✅ Update ad status
+      const updatedAd = await tx.crypto_ads.update({
+        where: { crypto_ad_id },
+        data: { is_active },
+      });
+
+      return updatedAd;
+    });
+
+    // ✅ Success response
+    return res.status(200).json({
+      status: true,
+      message: `The Crypto ad is now ${result.is_active ? "active" : "inactive"}.`,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      status: false,
+      message: "Unable to update crypto ad status.",
+      errors: error.message,
+    });
+  }
+};
+
+export const completeRequestedPendingTrade = async (req, res) => {
+  const { trade_id, amount } = req.body;
+
+  // Validation
+  if (!trade_id || isNaN(trade_id)) {
+    return res.status(422).json({
+      status: false,
+      message: "Validation failed.",
+      errors: { trade_id: "trade_id is required and must be numeric" },
+    });
+  }
+
+  try {
+    // Begin transaction
+    const result = await prisma.$transaction(async (tx) => {
+      // Fetch trade details
+      const tradeDetails = await tx.trades.findUnique({
+        where: { trade_id: BigInt(trade_id) },
+      });
+
+      if (!tradeDetails) {
+        throw new Error("Trade not found for the provided trade id.");
+      }
+      if (tradeDetails.trade_status === "success") {
+        throw new Error("Trade is already completed successfully.");
+      }
+      if (!tradeDetails.payment_details) {
+        throw new Error("Payment not done yet.");
+      }
+
+      // === Fetch wallets ===
+      const sellerWallet = await tx.web3_wallets.findFirst({
+        where: {
+          user_id: tradeDetails.seller_id,
+          asset: cryptoAsset(tradeDetails.asset),
+          network: network(tradeDetails.asset),
+        },
+      });
+      const buyerWallet = await tx.web3_wallets.findFirst({
+        where: {
+          user_id: tradeDetails.buyer_id,
+          asset: cryptoAsset(tradeDetails.asset),
+          network: network(tradeDetails.asset),
+        },
+      });
+
+      if (!sellerWallet || !buyerWallet) {
+        throw new Error("Seller or buyer wallet not found.");
+      }
+
+      // === Seller Transaction ===
+      const sellerAvailableAmount = new Decimal(sellerWallet.remaining_amount);
+      const sellerRemainingAmount = sellerAvailableAmount.minus(
+        new Decimal(tradeDetails.hold_asset)
+      );
+
+      const sellerTxnData = {
+        user_id: tradeDetails.seller_id,
+        txn_type: "internal",
+        from_address: sellerWallet.wallet_address,
+        to_address: buyerWallet.wallet_address,
+        txn_hash_id: txnHash(tradeDetails.seller_id),
+        asset: sellerWallet.asset,
+        network: sellerWallet.network,
+        available_amount: sellerAvailableAmount,
+        credit_amount: 0,
+        debit_amount: tradeDetails.hold_asset,
+        transfer_percentage: 0,
+        transfer_fee: 0,
+        paid_amount: 0,
+        remaining_amount: sellerRemainingAmount,
+        method: "send",
+        status: "success",
+        updated_buy: "Internal",
+        remark: "By selling the asset",
+        date_time: dayjs().unix(),
+      };
+
+      await tx.transaction.create({ data: sellerTxnData });
+
+      // Update Seller Wallet
+      await tx.web3Wallet.update({
+        where: { id: sellerWallet.id },
+        data: {
+          withdrawal_amount: new Decimal(sellerWallet.withdrawal_amount).plus(
+            new Decimal(tradeDetails.hold_asset)
+          ),
+          remaining_amount: sellerRemainingAmount,
+          hold_asset: new Decimal(sellerWallet.hold_asset).minus(
+            new Decimal(tradeDetails.hold_asset)
+          ),
+        },
+      });
+
+      // === Buyer Transaction ===
+      const buyerAvailableAmount = new Decimal(buyerWallet.remaining_amount);
+      const settingData = await tx.setting.findFirst({
+        where: { setting_id: 1 },
+      });
+
+      if (!settingData) throw new Error("Settings not found.");
+
+      let transferPercentage = new Decimal(0);
+      if (settingData.trade_fee_type === "percentage") {
+        transferPercentage = new Decimal(settingData.trade_fee);
+      } else if (settingData.trade_fee_type === "value") {
+        transferPercentage = new Decimal(settingData.trade_fee)
+          .times(100)
+          .div(tradeDetails.amount);
+      } else {
+        throw new Error("Invalid trade fee type.");
+      }
+
+      const transferFee = new Decimal(tradeDetails.hold_asset)
+        .times(transferPercentage)
+        .times(0.01);
+
+      const paidAmount = new Decimal(tradeDetails.hold_asset).minus(transferFee);
+      const buyerRemainingAmount = buyerAvailableAmount.plus(paidAmount);
+
+      const buyerTxnData = {
+        user_id: tradeDetails.buyer_id,
+        txn_type: "internal",
+        from_address: sellerWallet.wallet_address,
+        to_address: buyerWallet.wallet_address,
+        txn_hash_id: txnHash(tradeDetails.buyer_id),
+        asset: sellerWallet.asset,
+        network: sellerWallet.network,
+        available_amount: buyerAvailableAmount,
+        credit_amount: tradeDetails.hold_asset,
+        debit_amount: 0,
+        transfer_percentage: transferPercentage,
+        transfer_fee: transferFee,
+        paid_amount: paidAmount,
+        remaining_amount: buyerRemainingAmount,
+        method: "receive",
+        status: "success",
+        updated_buy: "Internal",
+        remark: "By buying the asset",
+        date_time: dayjs().unix(),
+      };
+
+      await tx.transaction.create({ data: buyerTxnData });
+
+      // Update Buyer Wallet
+      await tx.web3Wallet.update({
+        where: { id: buyerWallet.id },
+        data: {
+          deposit_amount: new Decimal(buyerWallet.deposit_amount).plus(
+            paidAmount
+          ),
+          remaining_amount: buyerRemainingAmount,
+          internal_deposit: new Decimal(buyerWallet.internal_deposit).plus(
+            paidAmount
+          ),
+        },
+      });
+
+      // ✅ Return combined data
+      return { tradeDetails, sellerWallet, buyerWallet };
+    });
+
+    // ✅ Commit Success Response
+    return res.status(200).json({
+      status: true,
+      message: "Requested pending trade completed successfully.",
+      data: result.tradeDetails,
+      sellerWallet: result.sellerWallet,
+      buyerWallet: result.buyerWallet,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      status: false,
+      message: "Unable to complete requested pending trade.",
+      errors: error.message,
+    });
+  }
+};

@@ -1,11 +1,11 @@
-// import express from "express";
-// import { getUsers } from "../controllers/userController.js";
-// ;import { register, login } from "../admin/adminController.js";
-// const router = express.Router();
+import express from "express";
+import { login, register } from "../controller/user/authController.js"
+import { authenticateUser } from "../middleware/authMiddleware.js";
+import { verifyEmailOtp } from "../controller/OtpController.js";
+const router = express.Router();
+router.post("/auth/register", register);
+router.post("/auth/login", login);
+router.post("/verify-email-otp", authenticateUser, verifyEmailOtp);
 
-// router.get("/", getUsers);
-// router.post("/register", validateRegister, register);
-// router.post("/login", validateLogin, login);
-// router.post("/logout", logout);
 
-// export default router;
+export default router;

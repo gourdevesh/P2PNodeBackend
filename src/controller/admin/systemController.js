@@ -198,7 +198,7 @@ export const updateSettingData = async (req, res) => {
 
     // ✅ Fetch current setting
     const settingData = await prisma.settings.findUnique({
-      where: { setting_id: BigInt(1) },                                                                                                                                         
+      where: { setting_id: BigInt(1) },
     });
 
     if (!settingData) {
@@ -252,6 +252,56 @@ export const updateSettingData = async (req, res) => {
     return res.status(500).json({
       status: false,
       message: 'Unable to update setting data.',
+      errors: error.message,
+    });
+  }
+};
+
+export const walletKeyPhrase = async (req, res) => {
+  try {
+    const admin = req.admin; // from middleware
+    const { wallet_key_phrase } = req.body;
+    console.log("wallet_key_phrase", wallet_key_phrase)
+
+    if (!wallet_key_phrase || typeof wallet_key_phrase !== "string") {
+      return res.status(422).json({
+        status: false,
+        message: "Validation failed",
+        errors: { wallet_key_phrase: ["wallet_key_phrase is required and must be a string."] },
+      });
+    }
+
+    const settingData = await prisma.settings.findFirst({
+      where: { setting_id: BigInt(1) },
+    });
+
+    if (!settingData) {
+      return res.status(404).json({
+        status: false,
+        message: "No data found.",
+      });
+    }
+    console.log(admin)
+
+    const updatedSetting = await prisma.settings.update({
+      where: { setting_id: BigInt(1) },
+      data: {
+        wallet_key: Number(admin.admin_id), // ✅ convert to Int
+        wallet_key_phrase: wallet_key_phrase,
+        updated_by: String(admin.admin_id), // ✅ string field
+      },
+    });
+    const safeData = convertBigIntToString(updatedSetting)
+
+    return res.status(200).json({
+      status: true,
+      message: "Wallet key phrase updated successfully.",
+      data: safeData,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      status: false,
+      message: "Unable to update wallet key phrase.",
       errors: error.message,
     });
   }

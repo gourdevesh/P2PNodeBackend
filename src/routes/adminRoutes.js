@@ -6,12 +6,12 @@ import { body } from "express-validator";
 import { loginAdmin, logOut, registerAdmin } from "../controller/admin/authController.js";
 import { adminDetail, changePassword, getAllAdmin, updateProfile } from "../controller/admin/adminController.js";
 import { authenticateAdmin } from "../middleware/authMiddleware.js";
-import { getSettingData, getWalletKeyPhrase, updateSettingData } from "../controller/admin/systemController.js";
+import { getSettingData, getWalletKeyPhrase, updateSettingData, walletKeyPhrase } from "../controller/admin/systemController.js";
 import { getAllUsersTickets, getParticularTicket, closeTicket } from "../controller/admin/supportTicketController.js";
 import { getAddressVerificationDetails, getIdVerificationDetails, verifyAddress, verifyId } from "../controller/admin/idAddressVerificationController.js";
 import { getUser, loginHistory, updateUserStatus, userDetail } from "../controller/admin/userDetailsController.js";
 import { getTransactionDetails, getWalletDetails } from "../controller/admin/WalletTransactionController.js";
-import { getCryptoAd, getTradeHistory } from "../controller/admin/CryptoOfferTradeController.js";
+import { completeRequestedPendingTrade, getCryptoAd, getTradeHistory, updateCryptoAdStatus } from "../controller/admin/CryptoOfferTradeController.js";
 import { getPaymentDetails, getUpiDetails, updatePaymentDetailsStatus, updateUpiDetailsStatus } from "../controller/admin/PaymentMethodController.js";
 import { validateUpdatePaymentStatus } from "../middleware/validation.js";
 import { getWebsiteDetails, updateLogoFavicon, updateNameUrlTitle, uploadMultiple } from "../controller/admin/WebsiteController.js";
@@ -20,6 +20,7 @@ import { getAdminAssets } from "../controller/admin/AdminAssetController.js";
 import { get } from "http";
 import { getCountries, getCountriesCurrency, getCountriesDialingCode, getTimezone } from "../controller/CountryController.js";
 import { deleteNotification, storeNotification } from "../controller/admin/AdminNotificationController.js";
+import { getDashboard } from "../controller/admin/DashboardController.js";
 
 const router = express.Router();
 const storageDir = path.join("storage", "app", "public", "images", "profile_image", "admin");
@@ -119,5 +120,11 @@ router.post("/admin/website/update-logo-favicon", authenticateAdmin, uploadMulti
 router.post("/admin/notifications", authenticateAdmin, storeNotification);
 router.delete("/admin/delete-notifications/:id", authenticateAdmin, deleteNotification);
 router.delete("/admin/auth/logout", authenticateAdmin, logOut);
+router.post("/admin/crypto-advertisement/toggle-cryptoAd-active", authenticateAdmin, updateCryptoAdStatus);
+router.get("/admin/dashboard", authenticateAdmin, getDashboard);
+router.post("/admin/trade/complete-requested-trade", authenticateAdmin, completeRequestedPendingTrade);
+router.post("/admin/setting/update-walletKeyPhrase", authenticateAdmin, walletKeyPhrase);
+
+
 
 export default router;
