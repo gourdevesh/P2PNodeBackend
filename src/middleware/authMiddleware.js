@@ -30,7 +30,7 @@ export const authenticateUser = (req, res, next) => {
     const token = authHeader.split(" ")[1];
     const decoded = jwt.verify(token, process.env.JWT_SECRET || "secret");
 
-    req.user = { user_id: Number(decoded.userId), email: decoded.email };
+    req.user = { user_id: Number(decoded.userId), email: decoded.email,  email_verified_at: decoded.email_verified_at || null,};
     req.tokenId = decoded.tokenId || null; // optional if you include it in your token payload
     next();
   } catch (err) {

@@ -13,7 +13,7 @@ import { getUser, loginHistory, updateUserStatus, userDetail } from "../controll
 import { getTransactionDetails, getWalletDetails } from "../controller/admin/WalletTransactionController.js";
 import { completeRequestedPendingTrade, getCryptoAd, getTradeHistory, updateCryptoAdStatus } from "../controller/admin/CryptoOfferTradeController.js";
 import { getPaymentDetails, getUpiDetails, updatePaymentDetailsStatus, updateUpiDetailsStatus } from "../controller/admin/PaymentMethodController.js";
-import { validateUpdatePaymentStatus } from "../middleware/validation.js";
+import { formData, validateUpdatePaymentStatus } from "../middleware/validation.js";
 import { getWebsiteDetails, updateLogoFavicon, updateNameUrlTitle, uploadMultiple } from "../controller/admin/WebsiteController.js";
 import moment from "moment";
 import { getAdminAssets } from "../controller/admin/AdminAssetController.js";
@@ -49,6 +49,7 @@ export const upload = multer({
   },
 });
 
+
 // Admin Register
 router.post(
   "/admin/auth/register",
@@ -76,7 +77,7 @@ router.post(
 
 // Admin Login
 router.post(
-  "/admin/auth/login",
+  "/admin/auth/login", formData,
   [
     body("username").notEmpty().withMessage("Username (email or phone) is required"),
     body("password").notEmpty().withMessage("Password is required"),
@@ -99,8 +100,8 @@ router.get("/admin/trade/get-trade-history", authenticateAdmin, getTradeHistory)
 router.get("/admin/account-details/get-payment-details", authenticateAdmin, getPaymentDetails);
 router.get("/admin/account-details/get-upi-details", authenticateAdmin, getUpiDetails);
 router.get("/admin/setting/get-walletKeyPhrase", authenticateAdmin, getWalletKeyPhrase);
-router.post("/admin/account-details/update-payment-details-status", authenticateAdmin, validateUpdatePaymentStatus, updatePaymentDetailsStatus);
-router.post("/admin/account-details/update-upi-details-status", authenticateAdmin, validateUpdatePaymentStatus, updateUpiDetailsStatus);
+router.post("/admin/account-details/update-payment-details-status", formData, authenticateAdmin, validateUpdatePaymentStatus, updatePaymentDetailsStatus);
+router.post("/admin/account-details/update-upi-details-status", formData, authenticateAdmin, validateUpdatePaymentStatus, updateUpiDetailsStatus);
 router.post("/admin/user/update-user-status", authenticateAdmin, updateUserStatus);
 router.post("/admin/profile/change-password", authenticateAdmin, changePassword);
 router.post("/admin/setting/update-setting-data", authenticateAdmin, updateSettingData);

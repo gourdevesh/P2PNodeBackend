@@ -198,12 +198,12 @@ export const login = async (req, res) => {
 
     // ✅ Compare password
     console.log(password)
-    
-    // const validPassword = await bcrypt.compare(password, user.password);
-    // console.log("validPassword",validPassword)
-    // if (!validPassword) {
-    //   return res.status(401).json({ status: false, message: "Invalid credentials" });
-    // }
+
+    const validPassword = await bcrypt.compare(password, user.password);
+    console.log("validPassword", validPassword)
+    if (!validPassword) {
+      return res.status(401).json({ status: false, message: "Invalid credentials" });
+    }
 
     // ✅ Check user status
     if (!["active", "block", "terminate"].includes(user.user_status)) {
@@ -248,7 +248,10 @@ export const login = async (req, res) => {
       // ✅ Generate JWT token
 
       const token = jwt.sign(
-        { userId: user.user_id.toString(), email: user.email },
+        {
+          userId: user.user_id.toString(), email: user.email, email_verified_at: user.email_verified_at,
+          address_verified_at: user.address_verified_at
+        },
         process.env.JWT_SECRET || "secret",
         { expiresIn: "7d" }
       );
@@ -263,20 +266,20 @@ export const login = async (req, res) => {
         model: device.device?.model,
       };
 
-   await prisma.user_login_details.create({
-  data: {
-    user_id: user.user_id,
-    token_id: uuidv4(), // ✅ Added token_id
-    ip_address: ipAddress,
-    device_details: JSON.stringify(deviceData),
-    device: deviceData.device || null,
-    browser: deviceData.clientInfo?.name || null,
-    os: deviceData.osInfo?.name || null,
-    os_version: deviceData.osInfo?.version || null,
-    login_status: "login",
-    logged_in_at: new Date(),
-  },
-});
+      await prisma.user_login_details.create({
+        data: {
+          user_id: user.user_id,
+          token_id: uuidv4(), // ✅ Added token_id
+          ip_address: ipAddress,
+          device_details: JSON.stringify(deviceData),
+          device: deviceData.device || null,
+          browser: deviceData.clientInfo?.name || null,
+          os: deviceData.osInfo?.name || null,
+          os_version: deviceData.osInfo?.version || null,
+          login_status: "login",
+          logged_in_at: new Date(),
+        },
+      });
 
       // ✅ Keep last 10 login records
       const allLogins = await prisma.user_login_details.findMany({
