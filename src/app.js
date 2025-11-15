@@ -8,7 +8,9 @@ import fs from "fs";
 // import userRoutes from "./routes/userRoutes.js";
 import adminRouter from "./routes/adminRoutes.js";
 import usersRouter from "./routes/userRoutes.js";
-
+BigInt.prototype.toJSON = function () {
+  return this.toString();
+};
 dotenv.config();
 
 const app = express();

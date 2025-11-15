@@ -23,7 +23,7 @@ import { deleteNotification, storeNotification } from "../controller/admin/Admin
 import { getDashboard } from "../controller/admin/DashboardController.js";
 
 const router = express.Router();
-const storageDir = path.join("storage", "app", "public", "images", "profile_image", "admin");
+const storageDir = path.join("storage", "app", "public", "images", "profile_image");
 fs.mkdirSync(storageDir, { recursive: true });
 
 // ✅ Multer config (Laravel-style)
@@ -37,7 +37,7 @@ const storage = multer.diskStorage({
   },
 });
 
-export const upload = multer({
+export const uploadImage = multer({
   storage,
   limits: { fileSize: 2 * 1024 * 1024 }, // 2MB
   fileFilter: (req, file, cb) => {
@@ -110,7 +110,7 @@ router.post("/admin/verification/verify-id", authenticateAdmin, verifyId);
 router.post("/admin/support-tickets/close-ticket", authenticateAdmin, closeTicket);
 router.post("/admin/website/update-nameTitleUrl", authenticateAdmin, updateNameUrlTitle);
 router.get("/admin/website/details", authenticateAdmin, getWebsiteDetails);
-router.post("/admin/profile/update-profile", upload.single("profile_image"), authenticateAdmin, updateProfile);
+router.post("/admin/profile/update-profile", uploadImage.single("profile_image"), authenticateAdmin, updateProfile);
 router.get("/admin/admin-wallet/get-assets-details", authenticateAdmin, getAdminAssets);
 router.get("/admin/crypto-advertisement/crypto-ad", authenticateAdmin, getCryptoAd);
 router.get("/countries/currency", authenticateAdmin, getCountriesCurrency);

@@ -4,6 +4,7 @@ import moment from "moment";
 import axios from "axios";
 import bcrypt from "bcrypt";
 import { body, validationResult } from "express-validator";
+import path from "path";
 
 // Controller function
 export const userDetail = async (req, res) => {
@@ -523,6 +524,57 @@ export const getSecurityQuestion = async (req, res) => {
       status: false,
       message: "Unable to retrieve security questions",
       errors: [err.message], // wrap in array to ensure valid JSON
+    });
+  }
+};
+
+export const updateProfileImage = async (req, res) => {
+  const imageFile = req.file;
+  const user = req.user; // Auth middleware must populate
+console.log(user)
+  if (!user) {
+    return res.status(401).json({ status: "unauthorized", message: "User not found." });
+  }
+
+  if (!imageFile) {
+    return res.status(422).json({
+      status: false,
+      message: "Validation failed",
+      errors: { profile_image: "Profile image is required" },
+    });
+  }
+
+  try {
+    // Delete old image if exists
+    if (user.profile_image && !user.profile_image.startsWith("http")) {
+      const oldPath = path.join("storage", user.profile_image);
+      if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
+    }
+
+    // Store only relative path
+    // Save relative path
+    const relativePath = path.join("images", "profile_image", imageFile.filename).replace(/\\/g, "/");
+
+    // Build URL
+    const profileImageUrl = `${req.protocol}://${req.get("host")}/storage/${relativePath}`;
+    // Update user in database
+    const updatedUser = await prisma.users.update({
+      where: { user_id: user.user_id},
+      data: { profile_image: relativePath },
+    });
+
+
+    return res.status(200).json({
+      status: true,
+      message: "Profile image updated successfully.",
+      profile_image_url: profileImageUrl,
+    });
+  } catch (error) {
+    console.error("Error updating profile image:", error);
+    return res.status(500).json({
+      status: false,
+      message: "Something went wrong. Please try again later!",
+      errors: error.message,
     });
   }
 };

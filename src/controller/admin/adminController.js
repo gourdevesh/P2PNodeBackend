@@ -287,7 +287,7 @@ export const updateProfile = async (req, res) => {
     }
 
     // ✅ Store only relative path from "images/..."
-    const relativePath = path.join("images", "profile_image", "admin", imageFile.filename).replace(/\\/g, "/");
+    const relativePath = path.join("images", "profile_image", imageFile.filename).replace(/\\/g, "/");
 
     // Update database
     await prisma.admins.update({
