@@ -144,6 +144,7 @@ model crypto_ads {
   created_at            DateTime?                   @db.Timestamp(0)
   updated_at            DateTime?                   @db.Timestamp(0)
   user users @relation(fields: [user_id], references: [user_id])
+  favorite_offers favorite_offers[]
 
   @@index([user_id], map: "crypto_ads_user_id_foreign")
 }
@@ -254,6 +255,7 @@ model favorite_offers {
   crypto_ad_id BigInt    @db.UnsignedBigInt
   created_at   DateTime? @db.Timestamp(0)
   updated_at   DateTime? @db.Timestamp(0)
+  crypto_ad crypto_ads @relation(fields: [crypto_ad_id], references: [crypto_ad_id])
 
   @@unique([user_id, crypto_ad_id], map: "favorite_offers_user_id_crypto_ad_id_unique")
   @@index([crypto_ad_id], map: "favorite_offers_crypto_ad_id_foreign")
@@ -312,7 +314,7 @@ model notification_reads {
   seen_at              DateTime  @default(now()) @db.Timestamp(0)
   created_at           DateTime? @db.Timestamp(0)
   updated_at           DateTime? @db.Timestamp(0)
-
+  notification   notifications @relation(fields: [notification_id], references: [notification_id])
   @@index([notification_id], map: "notification_reads_notification_id_foreign")
   @@index([user_id], map: "notification_reads_user_id_foreign")
 }
@@ -328,6 +330,7 @@ model notifications {
   is_read         Boolean            @default(false)
   created_at      DateTime?          @db.Timestamp(0)
   updated_at      DateTime?          @db.Timestamp(0)
+  notification_reads notification_reads[]
 
   @@index([user_id], map: "notifications_user_id_foreign")
 }

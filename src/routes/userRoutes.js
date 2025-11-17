@@ -9,10 +9,13 @@ import { singelUpload, upload } from "../middleware/upload.js";
 import { addUpiDetails, getPaymentDetails, getUpiDetails, storePaymentDetails } from "../controller/user/PaymentController.js";
 import { formData, validateBio, validateChangePassword, validateSecurityQuestions, validateUsername } from "../middleware/validation.js";
 import { uploadImage } from "./adminRoutes.js";
-import { createCryptoAd, getCryptoAd, getMyCryptoAd } from "../controller/user/CryptoAdController.js";
+import { createCryptoAd, getCryptoAd, getFavoriteCryptoOffer, getMyCryptoAd, toggleFavoriteCryptoOffer, updateAllCryptoAdIsActive, updateCryptoAd, updateCryptoAdIsActive } from "../controller/user/CryptoAdController.js";
+import { getAllNotifications, getPerticularNotification, markAsRead } from "../controller/user/NotificationController.js";
+import { getParticularTicket } from "../controller/admin/supportTicketController.js";
+import { cancelTrade, getTradeFeedback, getTradeHistory, giveFeedback, initiateTrade, updateTradeFeedback } from "../controller/user/TradeController.js";
 const router = express.Router();
 router.post("/auth/register", register);
-router.post("/auth/login", login);
+router.post("/auth/login", formData, login);
 router.post("/verify-email-otp", authenticateUser, verifyEmailOtp);
 router.post("/send-email-otp", authenticateUser, sendEmailOtp);
 router.get("/user-details", authenticateUser, userDetail);
@@ -33,10 +36,22 @@ router.post("/security-questions", authenticateUser, securityQuestion);
 router.get("/security-questions", authenticateUser, getSecurityQuestion);
 router.post("/update-profile-image", uploadImage.single("image"), authenticateUser, updateProfileImage);
 router.get("/crypto-advertisement/my-crypto-ad", authenticateUser, getMyCryptoAd);
-router.post("/crypto-advertisement/create-crypto-ad",formData, authenticateUser, createCryptoAd);
+router.post("/crypto-advertisement/create-crypto-ad", formData, authenticateUser, createCryptoAd);
 router.get("/crypto-advertisement/crypto-ad", authenticateUser, getCryptoAd);
-
-
+router.post("/crypto-advertisement/toggle-cryptoAd-active", formData, authenticateUser, updateCryptoAdIsActive);
+router.post("/crypto-advertisement/toggle-all-cryptoAd-active", formData, authenticateUser, updateAllCryptoAdIsActive);
+router.post("/crypto-advertisement/update-crypto-ad", formData, authenticateUser, updateCryptoAd);
+router.post("/crypto-advertisement/toggle-favorite-cryptoOffer", formData, authenticateUser, toggleFavoriteCryptoOffer);
+router.get("/crypto-advertisement/get-favorite-offer", formData, authenticateUser, getFavoriteCryptoOffer);
+router.get("/notifications", formData, authenticateUser, getAllNotifications);
+router.get("/notification/:id", formData, authenticateUser, getPerticularNotification);
+router.patch("/mark-as-read", formData, authenticateUser, markAsRead);
+router.post("/trade/initiate-trade", formData, authenticateUser, initiateTrade);
+router.get("/trade/get-trade-history", authenticateUser, getTradeHistory);
+router.post("/trade/give-feedback",formData, authenticateUser, giveFeedback);
+router.get("/trade/get-trade-feedback",formData, authenticateUser, getTradeFeedback);
+router.post("/trade/update-trade-feedback", formData, authenticateUser, updateTradeFeedback);
+router.post("/trade/cancel-trade", formData, authenticateUser,cancelTrade );
 
 
 export default router;

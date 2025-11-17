@@ -355,7 +355,477 @@ export const getCryptoAd = async (req, res) => {
     }
 };
 
+export const updateCryptoAdIsActive = async (req, res) => {
+    const user = req.user;
 
+    try {
+        let { id, is_active } = req.body;
+
+        // Convert is_active to boolean (like Laravel $request->boolean())
+        is_active = String(is_active) === "true" ? true : false;
+
+        // ===========================
+        // VALIDATION
+        if (!id || isNaN(id)) {
+            return res.status(422).json({
+                status: false,
+                message: "Validation failed",
+                errors: { id: ["id is required and must be numeric"] },
+            });
+        }
+
+        if (typeof is_active !== "boolean") {
+            return res.status(422).json({
+                status: false,
+                message: "Validation failed",
+                errors: { is_active: ["is_active must be boolean"] },
+            });
+        }
+
+        // ===========================
+        // TRANSACTION
+        // ===========================
+        const updatedAd = await prisma.$transaction(async (tx) => {
+            // Find ad of logged-in user
+            const cryptoAd = await tx.crypto_ads.findFirst({
+                where: {
+                    crypto_ad_id: Number(id),
+                    user_id: user.user_id,
+                },
+            });
+
+            if (!cryptoAd) {
+                throw new Error("Crypto Ad not found.");
+            }
+
+            if (cryptoAd.is_accepted) {
+                throw new Error(
+                    "The selected ad is currently involved in an active trade. Please try again once the trade is completed."
+                );
+            }
+
+            // Update status
+            return await tx.crypto_ads.update({
+                where: { crypto_ad_id: BigInt(id) },
+                data: { is_active },
+            });
+        });
+
+        return res.status(200).json({
+            status: true,
+            message: `The Crypto ad is now ${updatedAd.is_active ? "active" : "inactive"}`,
+        });
+
+    } catch (err) {
+        return res.status(500).json({
+            status: false,
+            message: "Unable to update the crypto ad.",
+            errors: err.message
+        });
+    }
+};
+
+export const updateAllCryptoAdIsActive = async (req, res) => {
+    const user = req.user;
+
+    try {
+        // Convert string to boolean (same as Laravel ->boolean())
+        let { is_active } = req.body;
+        is_active = String(is_active) === "true" ? true : false;
+
+        // -----------------------
+        // Validation
+        // -----------------------
+        if (typeof is_active !== "boolean") {
+            return res.status(422).json({
+                status: false,
+                message: "Validation failed",
+                errors: { is_active: ["is_active must be boolean"] },
+            });
+        }
+
+        // -----------------------
+        // Transaction
+        // -----------------------
+        const result = await prisma.$transaction(async (tx) => {
+            // Get all crypto ads for user
+            const cryptoAds = await tx.crypto_ads.findMany({
+                where: { user_id: BigInt(user.user_id) },
+            });
+
+            if (!cryptoAds.length) {
+                throw new Error("Crypto Ad not found.");
+            }
+
+            const acceptedErrors = [];
+
+            for (const ad of cryptoAds) {
+                // If ad is accepted & user is trying to turn OFF -> error
+                if (ad.is_accepted && is_active === false) {
+                    acceptedErrors.push({
+                        crypto_ad_id: ad.crypto_ad_id,
+                        errors:
+                            "The ad is currently involved in an active trade. Please try again once the trade is completed.",
+                    });
+                } else {
+                    // Update status
+                    await tx.crypto_ads.update({
+                        where: { crypto_ad_id: BigInt(ad.crypto_ad_id) },
+                        data: { is_active: is_active },
+                    });
+                }
+            }
+
+            return acceptedErrors;
+        });
+
+        return res.status(200).json({
+            status: true,
+            message: `All the Crypto ads are now ${is_active ? "active" : "inactive"}`,
+            errors: result, // list of accepted errors
+        });
+    } catch (err) {
+        return res.status(500).json({
+            status: false,
+            message: "Unable to update the crypto ads.",
+            errors: err.message,
+        });
+    }
+};
+
+export const updateCryptoAd = async (req, res) => {
+    const user = req.user;
+
+    try {
+        const {
+            cryptoAd_id,
+            min_trade_limit,
+            max_trade_limit,
+            offer_margin,
+            offer_time_limit
+        } = req.body;
+
+        // Convert all numeric fields
+        const minLimit = min_trade_limit !== undefined ? Number(min_trade_limit) : undefined;
+        const maxLimit = max_trade_limit !== undefined ? Number(max_trade_limit) : undefined;
+        const margin = offer_margin !== undefined ? Number(offer_margin) : undefined;
+        const timeLimit = offer_time_limit !== undefined ? Number(offer_time_limit) : undefined;
+
+        const errors = {};
+
+        // ---------------------------
+        // VALIDATION
+        // ---------------------------
+
+        // cryptoAd_id required and numeric
+        if (!cryptoAd_id || isNaN(Number(cryptoAd_id))) {
+            errors.cryptoAd_id = ["cryptoAd_id is required and must be numeric"];
+        }
+
+        // min_trade_limit >= 50 (Laravel rule)
+        if (min_trade_limit !== undefined && (isNaN(minLimit) || minLimit < 50)) {
+            errors.min_trade_limit = ["min_trade_limit must be numeric and >= 50"];
+        }
+
+        // max_trade_limit >= min_trade_limit
+        if (max_trade_limit !== undefined) {
+            if (isNaN(maxLimit)) {
+                errors.max_trade_limit = ["max_trade_limit must be numeric"];
+            } else if (minLimit !== undefined && maxLimit < minLimit) {
+                errors.max_trade_limit = ["max_trade_limit must be >= min_trade_limit"];
+            }
+        }
+
+        // offer_margin >= 1
+        if (offer_margin !== undefined && (isNaN(margin) || margin < 1)) {
+            errors.offer_margin = ["offer_margin must be numeric and >= 1"];
+        }
+
+        // offer_time_limit >= 10
+        if (offer_time_limit !== undefined && (isNaN(timeLimit) || timeLimit < 10)) {
+            errors.offer_time_limit = ["offer_time_limit must be >= 10"];
+        }
+
+        // If any validation failed
+        if (Object.keys(errors).length > 0) {
+            return res.status(422).json({
+                status: false,
+                message: "Validation failed.",
+                errors,
+            });
+        }
+
+        // ---------------------------
+        // CHECK AT LEAST ONE FIELD
+        // ---------------------------
+        const updatableFields = [
+            "min_trade_limit",
+            "max_trade_limit",
+            "offer_margin",
+            "offer_time_limit"
+        ];
+
+        const atLeastOne = updatableFields.some(
+            (f) => req.body[f] !== undefined && req.body[f] !== ""
+        );
+
+        if (!atLeastOne) {
+            return res.status(400).json({
+                status: false,
+                message: "At least one field is required.",
+            });
+        }
+
+        // ---------------------------
+        // DATABASE TRANSACTION
+        // ---------------------------
+        await prisma.$transaction(async (tx) => {
+            // Find ad
+            const cryptoAd = await tx.crypto_ads.findFirst({
+                where: {
+                    crypto_ad_id: Number(cryptoAd_id),
+                    user_id: user.user_id,
+                },
+            });
+
+            if (!cryptoAd) throw new Error("Crypto Ad not found for this id.");
+
+            if (cryptoAd.is_accepted) {
+                throw new Error(
+                    "The selected ad is currently involved in an active trade. Please try again once the trade is completed."
+                );
+            }
+
+            if (cryptoAd.is_active) {
+                throw new Error(
+                    "The selected ad is currently active. Please deactivate it first before proceeding."
+                );
+            }
+
+            // Build update object
+            const updateData = {};
+
+            if (minLimit !== undefined) updateData.min_trade_limit = minLimit;
+            if (maxLimit !== undefined) updateData.max_trade_limit = maxLimit;
+            if (margin !== undefined) updateData.offer_margin = margin;
+            if (timeLimit !== undefined) updateData.offer_time_limit = timeLimit;
+
+            // Update ad
+            const updatedAd = await tx.crypto_ads.update({
+                where: { crypto_ad_id: Number(cryptoAd_id) },
+                data: updateData,
+            });
+
+            // Create notification
+            await tx.notifications.create({
+                data: {
+                    user_id: user.user_id,
+                    title: "Crypto Ad updated successfully.",
+                    message: `You have successfully updated your Crypto Advertisement to ${updatedAd.transaction_type} ${updatedAd.cryptocurrency}.`,
+                    type: "account_activity",
+                    is_read: false,
+                },
+            });
+        });
+
+        // ---------------------------
+        // SUCCESS RESPONSE
+        // ---------------------------
+        return res.status(200).json({
+            status: true,
+            message: "Crypto advertisement updated successfully.",
+        });
+
+    } catch (err) {
+        return res.status(500).json({
+            status: false,
+            message: "Failed to update crypto advertisement.",
+            errors: err.message,
+        });
+    }
+};
+
+
+
+
+
+export const toggleFavoriteCryptoOffer = async (req, res) => {
+    try {
+        const user = req.user;
+        const { ad_id } = req.body;
+
+        // ============================
+        //  VALIDATION
+        // ============================
+        if (!ad_id || isNaN(ad_id)) {
+            return res.status(422).json({
+                status: false,
+                message: "Validation failed.",
+                errors: {
+                    ad_id: ["The ad_id field is required and must be numeric."]
+                }
+            });
+        }
+
+        // Check if crypto ad exists (similar to exists:crypto_ads,crypto_ad_id)
+        const cryptoAd = await prisma.crypto_ads.findUnique({
+            where: { crypto_ad_id: Number(ad_id) }
+        });
+
+        if (!cryptoAd) {
+            return res.status(422).json({
+                status: false,
+                message: "Validation failed.",
+                errors: {
+                    ad_id: ["Selected ad_id does not exist."]
+                }
+            });
+        }
+
+        // ============================
+        // CHECK EXISTING FAVORITE
+        // ============================
+        const existingFavorite = await prisma.favorite_offers.findFirst({
+            where: {
+                user_id: user.user_id,
+                crypto_ad_id: Number(ad_id),
+
+            }
+        });
+
+        if (existingFavorite) {
+            // Remove from favorites
+            await prisma.favorite_offers.delete({
+                where: { fo_id: BigInt(existingFavorite. fo_id) }
+            });
+
+            return res.status(200).json({
+                status: true,
+                message: "Crypto offer removed from favorite offer.",
+                favorite_status: false
+            });
+        }
+
+        // ============================
+        // ADD NEW FAVORITE
+        // ============================
+        await prisma.favorite_offers.create({
+            data: {
+                user_id: user.user_id,
+                crypto_ad_id: Number(ad_id),
+                created_at: new Date(),
+                updated_at: new Date()
+            }
+        });
+
+        return res.status(201).json({
+            status: true,
+            message: "Crypto offer added to favorite offer.",
+            favorite_status: true
+        });
+
+    } catch (error) {
+        return res.status(500).json({
+            status: false,
+            message: "Unable to toggle the favorite offer.",
+            errors: error.message
+        });
+    }
+};
+
+export const getFavoriteCryptoOffer = async (req, res) => {
+    try {
+        const user = req.user;
+        const perPage = Number(req.query.per_page) || 10;
+        const trade_type = req.query.trade_type;
+
+        // Validate trade_type
+        if (trade_type && !["buy", "sell"].includes(trade_type)) {
+            return res.status(400).json({
+                status: false,
+                message: "Invalid trade type. It should be either buy or sell"
+            });
+        }
+
+        // RELATION FILTER
+        const baseWhere = {
+            user_id: BigInt(user.user_id),
+            ...(trade_type ? { crypto_ad: { transaction_type: trade_type } } : {})
+        };
+
+        // Analytics
+        const [totalFavoriteOffer, totalBuyFavoriteOffer, totalSellFavoriteOffer] = await Promise.all([
+            prisma.favorite_offers.count({ where: { user_id: BigInt(user.user_id) } }),
+
+            prisma.favorite_offers.count({
+                where: {
+                    user_id: BigInt(user.user_id),
+                    crypto_ad: { transaction_type: "buy" }
+                }
+            }),
+
+            prisma.favorite_offers.count({
+                where: {
+                    user_id: BigInt(user.user_id),
+                    crypto_ad: { transaction_type: "sell" }
+                }
+            })
+        ]);
+
+        // Pagination
+        const page = Number(req.query.page) || 1;
+        const skip = (page - 1) * perPage;
+
+        const [favoriteOffers, totalOffers] = await Promise.all([
+            prisma.favorite_offers.findMany({
+                where: baseWhere,
+                orderBy: { fo_id: "desc" },
+                skip,
+                take: perPage,
+                include: {
+                    crypto_ad: true
+                }
+            }),
+
+            prisma.favorite_offers.count({ where: baseWhere })
+        ]);
+
+        const lastPage = Math.ceil(totalOffers / perPage);
+
+        const pagination = {
+            current_page: page,
+            from: skip + 1,
+            to: skip + favoriteOffers.length,
+            total: totalOffers,
+            per_page: perPage,
+            last_page: lastPage,
+            next_page_url: page < lastPage ? `?page=${page + 1}` : null,
+            prev_page_url: page > 1 ? `?page=${page - 1}` : null,
+            first_page_url: `?page=1`,
+            last_page_url: `?page=${lastPage}`,
+            path: req.originalUrl.split("?")[0]
+        };
+
+        return res.json({
+            status: true,
+            message: "Favorite crypto offers retrieved successfully.",
+            favorite_offers: favoriteOffers,
+            pagination,
+            analytics: {
+                totalFavoriteOffer,
+                totalBuyFavoriteOffer,
+                totalSellFavoriteOffer
+            }
+        });
+
+    } catch (error) {
+        return res.status(500).json({
+            status: false,
+            message: "Unable to fetch favorite crypto offer",
+            errors: error.message
+        });
+    }
+};
 
 
 function logo(currency = null, req = null,) {
@@ -363,7 +833,7 @@ function logo(currency = null, req = null,) {
     return currency ? `${baseUrl}/storage/images/crypto_logo/${currency}.png` : "/icons/default.png";
 }
 
-function userDetails(user) {
+export function userDetails(user) {
     return {
         user_id: user.user_id,
         name: user.name,
