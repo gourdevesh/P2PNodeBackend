@@ -1,4 +1,5 @@
 import moment from "moment";
+import axios from 'axios';
 
 export const getCryptoLogo = (cryptocurrency = null, req) => {
   try {
@@ -67,3 +68,62 @@ export function userDetail(user) {
 export const getCurrentTimeInKolkata = () => {
   return moment.tz("Asia/Kolkata").toDate();
 };
+export function cryptoAsset(name) {
+  const cryptoCode = {
+    bitcoin: "btc",
+    binance: "bnb",
+    ethereum: "eth",
+    tether: "usdt",
+  };
+  return cryptoCode[name] || name;
+}
+export const fullAssetName = (asset) => {
+  return {
+    eth: "ethereum",
+    bnb: "binance",
+    usdt: "tether",
+    btc: "bitcoin",
+  }[asset];
+};
+
+export const txnHash = (id) => "tx_" + id + "_" + Date.now();
+
+export const feeDetails = (type, fee, value) => {
+  if (type === "percentage") {
+    return {
+      transferFee: (value * fee) / 100,
+      transferPercentage: fee,
+    };
+  }
+  return {
+    transferFee: Number(fee),
+    transferPercentage: 0,
+  };
+};
+
+export const truncateDecimal = (value, decimals) => {
+  return Number(value).toFixed(decimals);
+};
+
+export async function getBTCEquivalent(assetTicker, amount) {
+  try {
+    if (assetTicker.toLowerCase() === 'btc') {
+      return amount;
+    }
+
+    const asset = fullAssetName(assetTicker); // replicate your PHP fullAssetName function
+    const apiUrl = `https://api.coingecko.com/api/v3/simple/price?ids=${asset.toLowerCase()}&vs_currencies=btc`;
+
+    const response = await axios.get(apiUrl, { timeout: 30000 });
+    const data = response.data;
+
+    if (data[asset.toLowerCase()] && data[asset.toLowerCase()].btc) {
+      return amount * data[asset.toLowerCase()].btc;
+    } else {
+      return 0;
+    }
+  } catch (err) {
+    console.error('Error fetching BTC equivalent:', err.message);
+    return 0;
+  }
+}
