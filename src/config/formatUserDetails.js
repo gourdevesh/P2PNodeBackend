@@ -41,11 +41,12 @@ export async function formatUserDetails(user, withCountryDetails = true) {
         console.warn(`⚠️ Country lookup failed for IP: ${user.loggedIn_device_ip}`);
       }
     }
-
+console.log(user.profile_image)
     const imagePath = user.profile_image;
+
     const profileImageUrl =
       imagePath && !/^https?:\/\//i.test(imagePath)
-        ? `${process.env.BASE_URL || ""}/storage/${imagePath}`
+        ? `${process.env.APP_URL || ""}/storage/${imagePath}`
         : imagePath;
 
     const preferredTimezone = user.preferred_timezone || "Asia/Kolkata";

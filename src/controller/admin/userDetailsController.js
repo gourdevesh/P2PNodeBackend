@@ -1,6 +1,7 @@
 import prisma from '../../config/prismaClient.js';
 import { getCountryData } from '../../config/getCountryData.js';
 import { formatUserDetails } from '../../config/formatUserDetails.js';
+import { userDetail } from '../../config/ReusableCode.js';
 import dayjs from "dayjs";
 import relativeTime from "dayjs/plugin/relativeTime.js";
 import utc from "dayjs/plugin/utc.js";
@@ -187,12 +188,7 @@ export const loginHistory = async (req, res) => {
     );
 
     const data = {
-      user: {
-        user_id: user.user_id.toString(),
-        name: user.name,
-        username: user.username,
-        email: user.email,
-      },
+      user: userDetail(user),
       loginHistory: requiredData,
     };
     const safeData = convertBigIntToString(data);
@@ -212,7 +208,7 @@ export const loginHistory = async (req, res) => {
   }
 };
 
-export const userDetail = async (req, res) => {
+export const userDetails = async (req, res) => {
   try {
     const admin = req.admin; // middleware must set admin
     const perPage = parseInt(req.query.per_page) || admin?.per_page || 10;
@@ -370,8 +366,8 @@ export const updateUserStatus = async (req, res) => {
       }
 
       return tx.users.update({
-        where: { user_id: Number(user_id) },
-        data: { user_status: status },
+         where: { user_id: Number(user_id) },
+        data: { user_status: status,updated_at: new Date() },
       });
     });
 

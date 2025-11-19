@@ -96,6 +96,7 @@ model admins {
   created_at         DateTime?           @db.Timestamp(0)
   updated_at         DateTime?           @db.Timestamp(0)
   admin_assets       admin_assets[]
+
 }
 
 /// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
@@ -372,7 +373,7 @@ model personal_access_tokens {
   tokenable_type String    @db.VarChar(255)
   tokenable_id   BigInt    @db.UnsignedBigInt
   name           String    @db.VarChar(255)
-  token          String    @unique(map: "personal_access_tokens_token_unique") @db.VarChar(64)
+  token          String    @unique(map: "personal_access_tokens_token_unique") @db.VarChar(512) // increase here
   abilities      String?   @db.Text
   last_used_at   DateTime? @db.Timestamp(0)
   expires_at     DateTime? @db.Timestamp(0)

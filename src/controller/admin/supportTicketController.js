@@ -234,3 +234,104 @@ export const closeTicket = async (req, res) => {
         });
     }
 };
+
+
+export const replySupportTicket = async (req, res) => {
+    const admin = req.admin; // assume auth middleware sets req.admin
+    const { ticket_id, message } = req.body;
+    const attachments = req.files || []; // Multer uploaded files
+
+    try {
+        // 1. Validation
+        if (!ticket_id || !message) {
+            return res.status(422).json({
+                status: false,
+                message: 'Validation failed',
+                errors: [
+                    !ticket_id ? { ticket_id: 'ticket_id is required' } : null,
+                    !message ? { message: 'Message is required' } : null,
+                ].filter(Boolean),
+            });
+        }
+
+        const supportTicket = await prisma.support_tickets.findUnique({
+            where: { ticket_id: BigInt(ticket_id) },
+        });
+
+        if (!supportTicket) {
+            return res.status(404).json({
+                status: false,
+                message: 'Support ticket not found for the given ticket id.',
+            });
+        }
+        const errors = {};
+
+        if (attachments.length > 5) {
+            errors.attachments = ["You can upload max 5 attachments"];
+        }
+
+        if (Object.keys(errors).length > 0) {
+            return res.status(422).json({
+                status: false,
+                message: "Validation failed.",
+                errors,
+            });
+        }
+        let totalSize = 0;
+        attachments.forEach((file) => (totalSize += file.size));
+
+        if (totalSize > 100 * 1024 * 1024) {
+            return res.status(422).json({
+                status: false,
+                message: "Validation failed.",
+                errors: {
+                    attachments: ["Total attachment size cannot exceed 100MB."],
+                },
+            });
+        }
+        const APP_URL = process.env.APP_URL;
+
+        const finalUrls = attachments.map((file) => {
+            let clean = file.path
+                .replace(/\\/g, "/")              // Fix Windows slashes
+                .replace("storage/app/public/", "storage/"); // remove extra parts
+
+            return `${APP_URL}/${clean}`;
+        });
+
+        console.log(admin.admin_id)
+        // 4. Transaction
+        await prisma.$transaction(async (tx) => {
+            // Insert new message
+            await tx.support_ticket_messages.create({
+                data: {
+                    ticket_id: BigInt(ticket_id),
+                    sender_type: "admin",
+                    sender_id: BigInt(admin.admin_id),
+                    message,
+                    attachments: JSON.stringify(finalUrls),
+                    created_at: new Date(),
+                    updated_at: new Date(),
+                },
+            });
+
+            // Update ticket status
+            await tx.support_tickets.update({
+                where: { ticket_id: BigInt(ticket_id) },
+                data: { status: "in_progress" },
+            });
+        });
+        return res.status(200).json({
+            status: true,
+            message: 'Successfully replied to the support ticket.',
+        });
+
+    } catch (err) {
+        console.error('Reply support ticket failed:', err);
+        return res.status(500).json({
+            status: false,
+            message: 'Failed to reply to the support ticket.',
+            errors: err.message,
+        });
+    }
+};

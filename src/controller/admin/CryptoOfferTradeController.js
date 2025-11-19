@@ -1,5 +1,8 @@
 import prisma from '../../config/prismaClient.js';
 import { convertBigIntToString } from '../../config/convertBigIntToString.js';
+import { cryptoAsset, network, txnHash } from '../../config/ReusableCode.js';
+import { Prisma } from "@prisma/client";
+import dayjs from 'dayjs';
 
 export const getTradeHistory = async (req, res) => {
     const admin = req.admin; // assuming middleware sets admin data
@@ -223,30 +226,39 @@ if (paymentMethod) {
   }
 };
 export const updateCryptoAdStatus = async (req, res) => {
-  const admin = req.admin; // ✅ Admin set in auth middleware
-  const { crypto_ad_id, is_active } = req.body;
-  console.log(req.body)
+  const admin = req.admin;
+
+  let { ad_id, is_active } = req.body;
 
   try {
- 
 
-    if (typeof is_active !== "boolean") {
+    let crypto_ad_id = ad_id;  // FIXED
+  // Validate ID
+    if (isNaN(crypto_ad_id)) {
+      return res.status(400).json({
+        status: false,
+        message: "Validation failed.",
+        errors: { crypto_ad_id: ["crypto_ad_id is required and must be numeric"] },
+      });
+    }
+    crypto_ad_id = BigInt(crypto_ad_id); // FIXED
+    // Fix boolean
+    if (is_active === "true") is_active = true;
+    if (is_active === "false") is_active = false;
+   if (typeof is_active !== "boolean") {
       return res.status(400).json({
         status: false,
         message: "Validation failed.",
         errors: { is_active: ["is_active must be boolean (true/false)"] },
       });
     }
-
-    // ✅ Transaction start
     const result = await prisma.$transaction(async (tx) => {
-      // Find crypto ad by ID
       const cryptoAdDetails = await tx.crypto_ads.findUnique({
         where: { crypto_ad_id },
       });
 
       if (!cryptoAdDetails) {
-        throw new Error("Crypto Advertisement not found for the provided crypto ad id.");
+        throw new Error("Crypto Advertisement not found for the provided id.");
       }
 
       if (cryptoAdDetails.is_active === is_active) {
@@ -257,24 +269,21 @@ export const updateCryptoAdStatus = async (req, res) => {
 
       if (cryptoAdDetails.is_accepted) {
         throw new Error(
-          "The selected ad is currently involved in an active trade. Please try again once the trade is completed."
+          "The selected ad is currently involved in an active trade. Please try again later."
         );
       }
 
-      // ✅ Update ad status
-      const updatedAd = await tx.crypto_ads.update({
+      return await tx.crypto_ads.update({
         where: { crypto_ad_id },
         data: { is_active },
       });
-
-      return updatedAd;
     });
 
-    // ✅ Success response
     return res.status(200).json({
       status: true,
       message: `The Crypto ad is now ${result.is_active ? "active" : "inactive"}.`,
     });
+
   } catch (error) {
     return res.status(500).json({
       status: false,
@@ -283,6 +292,8 @@ export const updateCryptoAdStatus = async (req, res) => {
     });
   }
 };
+
+
 
 export const completeRequestedPendingTrade = async (req, res) => {
   const { trade_id, amount } = req.body;
@@ -313,7 +324,6 @@ export const completeRequestedPendingTrade = async (req, res) => {
       if (!tradeDetails.payment_details) {
         throw new Error("Payment not done yet.");
       }
-
       // === Fetch wallets ===
       const sellerWallet = await tx.web3_wallets.findFirst({
         where: {
@@ -322,6 +332,7 @@ export const completeRequestedPendingTrade = async (req, res) => {
           network: network(tradeDetails.asset),
         },
       });
+         
       const buyerWallet = await tx.web3_wallets.findFirst({
         where: {
           user_id: tradeDetails.buyer_id,
@@ -329,15 +340,15 @@ export const completeRequestedPendingTrade = async (req, res) => {
           network: network(tradeDetails.asset),
         },
       });
-
+ 
       if (!sellerWallet || !buyerWallet) {
         throw new Error("Seller or buyer wallet not found.");
       }
 
       // === Seller Transaction ===
-      const sellerAvailableAmount = new Decimal(sellerWallet.remaining_amount);
+      const sellerAvailableAmount = new Prisma.Decimal(sellerWallet.remaining_amount);
       const sellerRemainingAmount = sellerAvailableAmount.minus(
-        new Decimal(tradeDetails.hold_asset)
+        new Prisma.Decimal(tradeDetails.hold_asset)
       );
 
       const sellerTxnData = {
@@ -359,53 +370,53 @@ export const completeRequestedPendingTrade = async (req, res) => {
         status: "success",
         updated_buy: "Internal",
         remark: "By selling the asset",
-        date_time: dayjs().unix(),
+    date_time: String(Math.floor(Date.now() / 1000))  // ✔ FIXED
       };
 
-      await tx.transaction.create({ data: sellerTxnData });
+   const transaction=   await tx.transactions.create({ data: sellerTxnData });
 
       // Update Seller Wallet
-      await tx.web3Wallet.update({
-        where: { id: sellerWallet.id },
+      await tx.web3_wallets.update({
+        where: { wallet_id: sellerWallet.wallet_id },
         data: {
-          withdrawal_amount: new Decimal(sellerWallet.withdrawal_amount).plus(
-            new Decimal(tradeDetails.hold_asset)
+          withdrawal_amount: new Prisma.Decimal(sellerWallet.withdrawal_amount).plus(
+            new Prisma.Decimal(tradeDetails.hold_asset)
           ),
           remaining_amount: sellerRemainingAmount,
-          hold_asset: new Decimal(sellerWallet.hold_asset).minus(
-            new Decimal(tradeDetails.hold_asset)
+          hold_asset:new Prisma.Decimal(sellerWallet.hold_asset).minus(
+           new Prisma.Decimal(tradeDetails.hold_asset)
           ),
         },
       });
 
       // === Buyer Transaction ===
-      const buyerAvailableAmount = new Decimal(buyerWallet.remaining_amount);
-      const settingData = await tx.setting.findFirst({
-        where: { setting_id: 1 },
+      const buyerAvailableAmount = new Prisma.Decimal(buyerWallet.remaining_amount);
+      const settingData = await tx.settings.findFirst({
+        where: { setting_id: BigInt(1) },
       });
 
       if (!settingData) throw new Error("Settings not found.");
 
-      let transferPercentage = new Decimal(0);
+      let transferPercentage = new Prisma.Decimal(0);
       if (settingData.trade_fee_type === "percentage") {
-        transferPercentage = new Decimal(settingData.trade_fee);
+        transferPercentage = new Prisma.Decimal(settingData.trade_fee);
       } else if (settingData.trade_fee_type === "value") {
-        transferPercentage = new Decimal(settingData.trade_fee)
+        transferPercentage = new Prisma.Decimal(settingData.trade_fee)
           .times(100)
           .div(tradeDetails.amount);
       } else {
         throw new Error("Invalid trade fee type.");
       }
 
-      const transferFee = new Decimal(tradeDetails.hold_asset)
+      const transferFee = new Prisma.Decimal(tradeDetails.hold_asset)
         .times(transferPercentage)
         .times(0.01);
 
-      const paidAmount = new Decimal(tradeDetails.hold_asset).minus(transferFee);
+      const paidAmount = new Prisma.Decimal(tradeDetails.hold_asset).minus(transferFee);
       const buyerRemainingAmount = buyerAvailableAmount.plus(paidAmount);
 
       const buyerTxnData = {
-        user_id: tradeDetails.buyer_id,
+        user_id: BigInt(tradeDetails.buyer_id),
         txn_type: "internal",
         from_address: sellerWallet.wallet_address,
         to_address: buyerWallet.wallet_address,
@@ -423,20 +434,20 @@ export const completeRequestedPendingTrade = async (req, res) => {
         status: "success",
         updated_buy: "Internal",
         remark: "By buying the asset",
-        date_time: dayjs().unix(),
+    date_time: String(Math.floor(Date.now() / 1000))  // ✔ FIXED
       };
 
-      await tx.transaction.create({ data: buyerTxnData });
+      await tx.transactions.create({ data: buyerTxnData });
 
       // Update Buyer Wallet
-      await tx.web3Wallet.update({
-        where: { id: buyerWallet.id },
+      await tx.web3_wallets.update({
+        where: { wallet_id: BigInt(buyerWallet.wallet_id) },
         data: {
-          deposit_amount: new Decimal(buyerWallet.deposit_amount).plus(
+          deposit_amount: new Prisma.Decimal(buyerWallet.deposit_amount).plus(
             paidAmount
           ),
           remaining_amount: buyerRemainingAmount,
-          internal_deposit: new Decimal(buyerWallet.internal_deposit).plus(
+          internal_deposit: new Prisma.Decimal(buyerWallet.internal_deposit).plus(
             paidAmount
           ),
         },

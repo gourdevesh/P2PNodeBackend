@@ -1,5 +1,7 @@
 import prisma from '../../config/prismaClient.js';
 import { convertBigIntToString } from '../../config/convertBigIntToString.js';
+import path from "path";
+import fs from "fs"
 
 export const getSettingData = async (req, res) => {
   try {
@@ -303,6 +305,109 @@ export const walletKeyPhrase = async (req, res) => {
       status: false,
       message: "Unable to update wallet key phrase.",
       errors: error.message,
+    });
+  }
+};
+
+
+const ENV_PATH = path.resolve("./.env");
+
+// =========================
+// ENV Update Function
+// =========================
+function setEnvValue(key, value, doubleQuote) {
+  try {
+    if (!fs.existsSync(ENV_PATH)) {
+      throw new Error(`.env file not found at: ${ENV_PATH}`);
+    }
+
+    let envContent = fs.readFileSync(ENV_PATH, "utf8");
+    if (!envContent) {
+      throw new Error("Failed to read .env file.");
+    }
+
+    const safeValue = doubleQuote ? `"${value}"` : value;
+    const pattern = new RegExp(`^${key}=.*`, "m");
+    const replacement = `${key}=${safeValue}`;
+
+    if (pattern.test(envContent)) {
+      envContent = envContent.replace(pattern, replacement);
+    } else {
+      envContent += `\n${replacement}\n`;
+    }
+
+    fs.writeFileSync(ENV_PATH, envContent, "utf8");
+
+  } catch (error) {
+    throw new Error(`Error updating .env: ${error.message}`);
+  }
+}
+
+
+
+// =========================
+// Controller Function
+// =========================
+export const changeEmailCredential = async (req, res) => {
+  try {
+    const {
+      mail_mailer,
+      mail_host,
+      mail_port,
+      mail_username,
+      mail_password,
+      mail_encryption,
+      mail_from_address,
+      mail_from_name
+    } = req.body;
+
+    // Convert port to int
+    if (mail_port) req.body.mail_port = parseInt(mail_port);
+
+    // At least one field required
+    const validFields = [
+      mail_mailer,
+      mail_host,
+      mail_port,
+      mail_username,
+      mail_password,
+      mail_encryption,
+      mail_from_address,
+      mail_from_name
+    ];
+
+    if (!validFields.some(v => v)) {
+      return res.status(400).json({
+        status: false,
+        message: "At least one mail credential field must be provided."
+      });
+    }
+
+    // Update ENV same as Laravel
+    if (mail_mailer) setEnvValue("MAIL_MAILER", mail_mailer, false);
+    if (mail_host) setEnvValue("MAIL_HOST", mail_host, false);
+    if (mail_port) setEnvValue("MAIL_PORT", mail_port, false);
+    if (mail_username) setEnvValue("MAIL_USERNAME", mail_username, false);
+    if (mail_password) setEnvValue("MAIL_PASSWORD", mail_password, false);
+    if (mail_encryption) setEnvValue("MAIL_ENCRYPTION", mail_encryption, false);
+
+    if (mail_from_address)
+      setEnvValue("MAIL_FROM_ADDRESS", mail_from_address, true); // quotes
+
+    if (mail_from_name)
+      setEnvValue("MAIL_FROM_NAME", mail_from_name, false);
+
+
+    return res.status(200).json({
+      status: true,
+      message: "The email credential's value has been changed successfully"
+    });
+
+  } catch (err) {
+    return res.status(500).json({
+      status: false,
+      message: "Unable to update email credentials.",
+      errors: err.message
     });
   }
 };

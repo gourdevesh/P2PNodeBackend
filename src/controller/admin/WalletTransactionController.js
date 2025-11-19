@@ -1,7 +1,8 @@
 import prisma from '../../config/prismaClient.js';
 import { pagination } from "../../config/pagination.js";
-import { parse } from "date-fns"; // ✅ correct
+import { parse, isValid } from "date-fns"; // ✅ correct
 import { convertBigIntToString } from '../../config/convertBigIntToString.js';
+import { fullAssetName, network } from '../../config/ReusableCode.js';
 export const getWalletDetails = async (req, res) => {
   try {
     const admin = req.admin; // middleware must set admin (like Laravel $this->admin)
@@ -120,21 +121,27 @@ export const getTransactionDetails = async (req, res) => {
     if (status) whereClause.status = status;
 
     // ✅ Date range filtering
-    if (start_date && end_date) {
-      const startDate = parse(start_date, "dd-MM-yyyy", new Date());
-      const endDate = parse(end_date, "dd-MM-yyyy", new Date());
+    function safeParse(dateStr) {
+      if (!dateStr) return null;
+
+      const parsed = parse(dateStr, "dd-MM-yyyy", new Date());
+      return isValid(parsed) ? parsed : null;
+    }
+
+    // Date range filtering
+    const startDate = safeParse(start_date);
+    const endDate = safeParse(end_date);
+
+    if (startDate && endDate) {
       whereClause.created_at = {
         gte: startDate,
         lte: endDate,
       };
-    } else if (start_date) {
-      const startDate = parse(start_date, "dd-MM-yyyy", new Date());
+    } else if (startDate) {
       whereClause.created_at = { gte: startDate };
-    } else if (end_date) {
-      const endDate = parse(end_date, "dd-MM-yyyy", new Date());
+    } else if (endDate) {
       whereClause.created_at = { lte: endDate };
     }
-
     // ✅ Fetch transactions with pagination
     const [transactions, total] = await Promise.all([
       prisma.transactions.findMany({
@@ -200,6 +207,119 @@ export const getTransactionDetails = async (req, res) => {
     });
   }
 };
+export const updateAddressTransactionStatus = async (req, res) => {
+  const { txn_id, status, remark } = req.body;
+
+  try {
+    if (!txn_id) throw new Error("txn_id is required");
+    if (!["success", "failed", "reject"].includes(status))
+      throw new Error("Invalid status");
+    if (["failed", "reject"].includes(status) && !remark)
+      throw new Error("Remark is required when failed/reject");
+
+    await prisma.$transaction(async (tx) => {
+      // --- transaction logic as before ---
+      const transaction = await tx.transactions.findUnique({
+        where: { txn_id: BigInt(txn_id) },
+      });
+      if (!transaction) throw new Error("Transaction not found.");
+      if (transaction.status === "success")
+        throw new Error("Transaction already completed successfully.");
+
+      const user = await tx.users.findUnique({
+        where: { user_id: BigInt(transaction.user_id) },
+      });
+      if (!user) throw new Error("User not found.");
+
+      const assetValue = Number(transaction.debit_amount || 0);
+      let customSubject = "";
+      let customMessage = "";
+
+      if (status === "success") {
+        customSubject = "Asset Transfer successfully";
+        customMessage = `You have successfully sent ${assetValue} ${transaction.asset} to ${transaction.to_address}.`;
+      } else {
+        const wallet = await tx.web3_wallets.findFirst({
+          where: {
+            user_id: BigInt(user.user_id),
+            asset: transaction.asset,
+            network: transaction.network,
+          },
+        });
+        if (!wallet) throw new Error("Wallet not found.");
+
+        const admin = await tx.admin_assets.findFirst({
+          where: {
+            asset: fullAssetName(transaction.asset),
+            network: network(transaction.network),
+          },
+        });
+        if (!admin) throw new Error("Admin asset not found.");
+
+        const transferFee = Number(transaction.transfer_fee || 0);
+
+        await tx.web3_wallets.update({
+          where: { wallet_id: BigInt(wallet.wallet_id) },
+          data: {
+            withdrawal_amount: Number(wallet.withdrawal_amount) - assetValue,
+            remaining_amount: Number(wallet.remaining_amount) + assetValue,
+          },
+        });
+
+        await tx.admin_assets.update({
+          where: { admin_asset_id: BigInt(admin.admin_asset_id) },
+          data: {
+            total_revenue: Number(admin.total_revenue) - transferFee,
+            total_withdraw: Number(admin.total_withdraw) - assetValue,
+            available_balance:
+              Number(admin.total_deposit) -
+              (Number(admin.total_withdraw) - assetValue),
+          },
+        });
+
+        customSubject = "Transaction Failed";
+        customMessage =
+          "Your transaction failed. The deducted amount has been credited back to your wallet.";
+      }
+
+      await tx.transactions.update({
+        where: { txn_id: BigInt(txn_id) },
+        data: {
+          status,
+          remark: remark || "Manual Web3 transaction completed successfully.",
+          txn_hash_id: "TXN-" + transaction.user_id + "-" + Date.now(),
+        },
+      });
+
+      await tx.notifications.create({
+        data: {
+          user_id: BigInt(user.user_id),
+          title: customSubject,
+          message: customMessage,
+          operation_type: "transaction using address",
+          operation_id: String(txn_id),
+          type: "trade",
+          is_read: false,
+        },
+      });
+    });
+
+    // ✅ send success response immediately after transaction completes
+    return res.status(200).json({
+      status: true,
+      message: "Transaction updated successfully",
+    });
+
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({
+      status: false,
+      message: "Unable to update transaction",
+      errors: err.message,
+    });
+  }
+};
+
 
 // Helper to get "x time ago" like Laravel diffForHumans()
 function timeSince(date) {

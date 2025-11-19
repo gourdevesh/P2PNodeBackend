@@ -313,8 +313,8 @@ export const replySupportTicket = async (req, res) => {
       await tx.support_ticket_messages.create({
         data: {
           ticket_id: BigInt(ticket_id),
-          sender_type: "user",
-          sender_id: BigInt(user.user_id),
+          sender_type: "admin",
+        //   sender_id: BigInt(admin.admin_id),
           message,
           attachments: JSON.stringify(finalUrls),
           created_at: new Date(),

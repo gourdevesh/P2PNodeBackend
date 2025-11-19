@@ -127,3 +127,35 @@ export async function getBTCEquivalent(assetTicker, amount) {
     return 0;
   }
 }
+export function getAdminDetails(admin) {
+  return {
+    admin_id: admin.admin_id,
+    name: admin.name,
+    email: admin.email,
+    role: admin.role,
+  };
+}
+export function network(asset) {
+  const name = asset?.toLowerCase();
+
+  switch (name) {
+    case "usdt":
+    case "tether":
+      return "trc20";        // You can change to erc20/bep20 if required
+
+    case "eth":
+    case "ethereum":
+      return "erc20";
+
+    case "bnb":
+    case "binance":
+      return "bep20";
+
+    case "btc":
+    case "bitcoin":
+      return "btc";
+
+    default:
+      return null; // only returns null for unknown assets
+  }
+}

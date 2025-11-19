@@ -5,6 +5,7 @@ import * as UAParser from 'ua-parser-js'; // Fixed import
 import { v4 as uuidv4 } from 'uuid'
 import { RateLimiterMemory } from 'rate-limiter-flexible';
 import prisma from '../../config/prismaClient.js';
+import crypto from "crypto";
 import { convertBigIntToString } from '../../config/convertBigIntToString.js';
 const limiter = new RateLimiterMemory({
   points: 5, // 5 attempts
@@ -88,6 +89,33 @@ export const registerAdmin = async (req, res) => {
         message: "Unauthorized access. Only Super admin can create another admin or sub admin.",
       });
     }
+
+
+    const existingEmail = await prisma.admins.findUnique({
+      where: { email },
+    });
+
+    if (existingEmail) {
+      return res.status(409).json({
+        status: false,
+        message: "Email already exists. Please use another email.",
+      });
+    }
+
+    // 2️⃣ Check phone number exists (if provided)
+    if (phone_number) {
+      const existingPhone = await prisma.admins.findUnique({
+        where: { phone_number },
+      });
+
+      if (existingPhone) {
+        return res.status(409).json({
+          status: false,
+          message: "Phone number already exists. Please use another number.",
+        });
+      }
+    }
+
 
     // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
@@ -280,11 +308,6 @@ export const login = async (req, res) => {
   }
 };
 
-// Logout controller (optional for JWT, just for client-side)
-export const logout = async (req, res) => {
-  // For JWT, usually logout is handled client-side by deleting token
-  return res.status(200).json({ status: true, message: 'Logged out successfully' });
-};
 
 export const loginAdmin = async (req, res) => {
   try {
@@ -347,20 +370,43 @@ export const loginAdmin = async (req, res) => {
       },
     });
 
-    // 6. Generate JWT token
+    // Delete previous tokens for this admin
+    await prisma.personal_access_tokens.deleteMany({
+      where: {
+        tokenable_type: "Admin",
+        tokenable_id: updatedAdmin.admin_id,
+      },
+    });
+
+    // Then create a new token
     const token = jwt.sign(
-      { adminId: updatedAdmin.admin_id?.toString(), // ? ensures no error if undefined
- role: updatedAdmin.role }, // id ko string me convert karna safe
+      {
+        adminId: updatedAdmin.admin_id.toString(),
+        role: updatedAdmin.role,
+        nonce: crypto.randomBytes(8).toString("hex"), // ensures uniqueness
+      },
       process.env.JWT_SECRET || "secret",
       { expiresIn: "1d" }
     );
+
+    await prisma.personal_access_tokens.create({
+      data: {
+        tokenable_type: "Admin",
+        tokenable_id: updatedAdmin.admin_id,
+        name: "Admin Token",
+        token,
+        abilities: JSON.stringify([`role:${updatedAdmin.role}`]),
+        created_at: new Date(),
+        updated_at: new Date(),
+      },
+    });
 
     // 7. Return success
     return res.status(200).json({
       status: true,
       message: "Login successfully",
       admin: {
-      admin_id: updatedAdmin.admin_id?.toString(), // ? ensures no error if undefined
+        admin_id: updatedAdmin.admin_id?.toString(), // ? ensures no error if undefined
         name: updatedAdmin.name,
         email: updatedAdmin.email,
         phone_number: updatedAdmin.phone_number,
@@ -380,46 +426,55 @@ export const loginAdmin = async (req, res) => {
 };
 
 export const logOut = async (req, res) => {
-  const { admin_id } = req.admin;
+  const token = req.admin.token;
+  console.log
+  const adminId = req.admin?.admin_id; // assuming admin info is stored in req.admin after auth middleware
+  if (!adminId) {
+    return res.status(401).json({
+      status: 'failed',
+      message: 'Unauthorized'
+    });
+  }
+
 
   try {
-    if (!admin_id) {
-      return res.status(401).json({
-        status: false,
-        message: "Admin not authenticated",
-      });
-    }
-
-    // 🔹 Start a Prisma transaction
     await prisma.$transaction(async (tx) => {
-      // 1️⃣ Delete all active tokens for this admin
-      await tx.tokens.deleteMany({
-        where: { admin_id },
+      // Find the token in the DB
+      const tokenRecord = await tx.personal_access_tokens.findFirst({
+        where: { token },
+      });
+      console.log(tokenRecord)
+      if (!tokenRecord) {
+        throw new Error('Token has already been logged out');
+      }
+
+      // Delete token
+      await tx.personal_access_tokens.delete({
+        where: { id: tokenRecord.id },
       });
 
-      // 2️⃣ Update admin login status
-      await tx.admin.update({
-        where: { id: admin_id },
-        data: { login_status: "logout" },
+      // Update admin login status
+      await tx.admins.update({
+        where: { admin_id: adminId },
+        data: { login_status: 'logout' },
       });
     });
 
     return res.status(200).json({
       status: true,
-      message: "Successfully logged out",
+      message: 'Successfully logged out',
     });
-
   } catch (error) {
-    console.error("Admin logout failed:", {
+    console.error('Admin logout failed', {
       error: error.message,
+      request_data: { ...req.body },
       ip_address: req.ip,
-      device_information: req.headers["user-agent"],
-      request_data: req.body,
+      device_information: req.headers['user-agent'],
     });
 
-    return res.status(500).json({
-      status: false,
-      message: "Error occurred during logout",
+    return res.status(error.message === 'Token has already been logged out' ? 409 : 500).json({
+      status: error.message === 'Token has already been logged out' ? 'failed' : 'database error',
+      message: 'Error occurred',
       errors: error.message,
     });
   }

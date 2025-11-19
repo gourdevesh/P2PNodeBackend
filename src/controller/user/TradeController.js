@@ -936,7 +936,8 @@ export const buyerUpdateTrade = async (req, res) => {
           trade_step: "TWO",
           time_limit: null,
           paid_at: dayjs().tz('Asia/Kolkata').toDate(),
-          status_changed_at: dayjs().tz('Asia/Kolkata').toDate()
+          status_changed_at: dayjs().tz('Asia/Kolkata').toDate(),
+          updated_at: new Date()
         }
       });
 

@@ -65,6 +65,7 @@ export const storeNotification = async (req, res) => {
                 message,
                 type: type.toLowerCase(), // must match your Prisma enum exactly
                 is_read: false,
+                created_at: new Date()
             },
         });
         const safeData = convertBigIntToString(notification);
@@ -95,13 +96,11 @@ export const deleteNotification = async (req, res) => {
         }
 
         const { id } = req.params;
-        console.log('Delete notification ID:', id);
 
         // ✅ Find notification by ID
         const notification = await prisma.notifications.findUnique({
             where: { notification_id: BigInt(id)},
         });
-console.log('Found notification:', notification);
         // ✅ Check if notification exists
         if (!notification) {
             return res.status(404).json({

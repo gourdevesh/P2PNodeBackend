@@ -143,7 +143,7 @@ export const getUpiDetails = async (req, res) => {
             user_id: item.user_id,
             upi_name: item.upi_name,
             upi_id: item.upi_id,
-            qr_code_url: `${process.env.BASE_URL}/storage/${item.qr_code}`, // Laravel asset() equivalent
+            qr_code_url: item.qr_code, // Laravel asset() equivalent
             caption: item.caption,
             is_primary: !!item.is_primary,
             status: item.status,
@@ -155,11 +155,11 @@ export const getUpiDetails = async (req, res) => {
         const paginationData = {
             current_page: currentPage,
             from: (currentPage - 1) * perPage + 1,
-            first_page_url: `${process.env.BASE_URL}/upi-details?page=1`,
+            first_page_url: `/upi-details?page=1`,
             last_page: lastPage,
-            last_page_url: `${process.env.BASE_URL}/upi-details?page=${lastPage}`,
-            next_page_url: currentPage < lastPage ? `${process.env.BASE_URL}/upi-details?page=${currentPage + 1}` : null,
-            prev_page_url: currentPage > 1 ? `${process.env.BASE_URL}/upi-details?page=${currentPage - 1}` : null,
+            last_page_url: `/upi-details?page=${lastPage}`,
+            next_page_url: currentPage < lastPage ? `/upi-details?page=${currentPage + 1}` : null,
+            prev_page_url: currentPage > 1 ? `/upi-details?page=${currentPage - 1}` : null,
             per_page: perPage,
             to: Math.min(currentPage * perPage, totalItems),
             total: totalItems,

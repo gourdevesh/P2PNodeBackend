@@ -2264,29 +2264,48 @@
                     "Admin"
                 ],
                 "summary": "Update the active status of a crypto ad",
-                "operationId": "toggleCryptoAdActive",
+                "operationId": "6a9386b42617be2da0aaab4fb0c10b38",
                 "requestBody": {
                     "required": true,
                     "content": {
-                        "application/json": {
+                        "multipart/form-data": {
                             "schema": {
-                                "type": "object",
                                 "required": [
-                                    "crypto_ad_id",
+                                    "ad_id",
                                     "is_active"
                                 ],
                                 "properties": {
-                                    "crypto_ad_id": {
-                                        "description": "ID of the Crypto Ad",
-                                        "type": "number",
-                                        "example": 3
+                                    "ad_id": {
+                                        "description": "Id of the Crypto Ad",
+                                        "type": "number"
                                     },
                                     "is_active": {
-                                        "description": "Set true to activate the crypto ad, or false to deactivate it",
+                                        "description": "Set to true to activate the crypto ad, or false to deactivate it",
+                                        "type": "boolean"
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        },
+                        "application/json": {
+                            "schema": {
+                                "required": [
+                                    "ad_id",
+                                    "is_active"
+                                ],
+                                "properties": {
+                                    "ad_id": {
+                                        "description": "Id of the Crypto Ad",
+                                        "type": "number",
+                                        "example": "3"
+                                    },
+                                    "is_active": {
+                                        "description": "Set to true to activate the crypto ad, or false to deactivate it",
                                         "type": "boolean",
                                         "example": true
                                     }
-                                }
+                                },
+                                "type": "object"
                             }
                         }
                     }
@@ -2297,7 +2316,6 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
                                     "properties": {
                                         "status": {
                                             "type": "boolean",
@@ -2307,7 +2325,52 @@
                                             "type": "string",
                                             "example": "The Crypto ad is now active."
                                         }
-                                    }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "status": {
+                                            "type": "boolean",
+                                            "example": false
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Failed to update the crypto ad."
+                                        },
+                                        "errors": {
+                                            "type": "string",
+                                            "example": "The selected ad is currently involved in an active trade. Please try again once the trade is completed."
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "status": {
+                                            "type": "boolean",
+                                            "example": "Unauthorized"
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "User not authenticated."
+                                        }
+                                    },
+                                    "type": "object"
                                 }
                             }
                         }
@@ -2317,7 +2380,6 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
                                     "properties": {
                                         "status": {
                                             "type": "boolean",
@@ -2331,31 +2393,8 @@
                                             "type": "object",
                                             "example": "Validation error."
                                         }
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "status": {
-                                            "type": "boolean",
-                                            "example": false
-                                        },
-                                        "message": {
-                                            "type": "string",
-                                            "example": "Unable to update crypto ad status."
-                                        },
-                                        "errors": {
-                                            "type": "string",
-                                            "example": "The selected ad is currently involved in an active trade. Please try again once the trade is completed."
-                                        }
-                                    }
+                                    },
+                                    "type": "object"
                                 }
                             }
                         }

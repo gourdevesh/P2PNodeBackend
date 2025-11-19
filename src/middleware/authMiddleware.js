@@ -23,6 +23,7 @@ export const authenticateAdmin = (req, res, next) => {
     req.admin = {
       admin_id: decoded.adminId,
       role: decoded.role,
+      token:token
     };
 
     next();
