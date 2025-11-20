@@ -46,17 +46,17 @@ export const adminDetail = async (req, res) => {
 
 // Helper function to format admin data
 const getAdminDetails = (admin) => {
-  let profileImage = admin.profile_image;
-  if (profileImage && !/^https?:\/\//i.test(profileImage)) {
-    profileImage = `${process.env.BASE_URL || "http://localhost:3000"}/storage/${profileImage}`;
-  }
+  // let profileImage = admin.profile_image;
+  // if (profileImage && !/^https?:\/\//i.test(profileImage)) {
+  //   profileImage = `${process.env.BASE_URL || "http://localhost:3000"}/storage/${profileImage}`;
+  // }
 
   return {
     admin_id: admin.admin_id.toString(), // convert BigInt to string
     name: admin.name,
     email: admin.email,
     phone_number: admin.phone_number,
-    profile_image: profileImage,
+    profile_image: admin.profile_image,
     role: admin.role,
     login_with: admin.login_with,
     login_status: admin.login_status,
@@ -69,6 +69,7 @@ const getAdminDetails = (admin) => {
 };
 
 export const getAllAdmin = async (req, res) => {
+  
   try {
     // 1. Analytics: count admins by role
     const allAdmins = await prisma.admins.findMany();
@@ -282,31 +283,36 @@ export const updateProfile = async (req, res) => {
 
     // 🧹 Delete old image (if exists)
     if (admin.profile_image) {
-      const oldPath = path.join("storage", "app", "public", admin.profile_image);
-      if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
+      // Convert full URL → relative path
+      const oldRelative = admin.profile_image.replace(`${process.env.APP_URL}/storage/`, "");
+
+      const oldPath = path.join("storage", "app", "public", oldRelative);
+
+      if (fs.existsSync(oldPath)) {
+        fs.unlinkSync(oldPath);
+      }
     }
 
-    // ✅ Store only relative path from "images/..."
-    const relativePath = path.join("images", "profile_image", imageFile.filename).replace(/\\/g, "/");
-
+    // Save only relative path
+    const relativePath = path
+      .join("images", "profile_image", imageFile.filename)
+      .replace(/\\/g, "/");
+    // 🔗 Create full URL for database
+    const fullImageUrl = `${process.env.APP_URL}/storage/${relativePath}`;
     // Update database
     await prisma.admins.update({
       where: { admin_id: admin.admin_id },
       data: {
         name,
         email,
-        profile_image: relativePath, // save only relative path
+        profile_image: fullImageUrl, // save only relative path
       },
     });
-
-    // ✅ Build correct public URL (Laravel-style)
-    const baseUrl = `${req.protocol}://${req.get("host")}`;
-    const imageUrl = `${baseUrl}/storage/${relativePath}`;
 
     return res.status(200).json({
       status: true,
       message: "Admin profile updated successfully.",
-      profile_imageUrl: imageUrl,
+      profile_imageUrl: fullImageUrl,
     });
   } catch (error) {
     console.error("Error updating profile:", error);

@@ -38,71 +38,74 @@ export const uploadMultiple = multer({
 
 
 export const updateNameUrlTitle = async (req, res) => {
-    const admin = req.admin;
-    const { name, url, title } = req.body;
+  const admin = req.admin;
+  const { name, url, title } = req.body;
 
-    try {
-        if (!name && !url && !title) {
-            return res.status(422).json({
-                status: false,
-                message: 'Validation failed',
-                errors: { fields: ['At least one field is required.'] },
-            });
-        }
-
-        const websiteDetails = await prisma.website_details.findUnique({
-            where: { website_details_id: 1 },
-        });
-
-        if (!websiteDetails) {
-            return res.status(404).json({
-                status: false,
-                message: 'Website details not found.',
-            });
-        }
-
-        // ✅ Prepare updatable data
-        const updateData = {};
-        if (name) updateData.website_name = name;
-        if (url) updateData.website_url = url;
-        if (title) updateData.website_title = title;
-
-        // Store who updated (optional)
-        updateData.updated_by = JSON.stringify(admin || {});
-
-        // ✅ Update record
-        await prisma.website_details.update({
-            where: { website_details_id: 1 },
-            data: updateData,
-        });
-
-        return res.status(200).json({
-            status: true,
-            message: 'Website details have been updated successfully.',
-        });
-
-    } catch (error) {
-        console.error('Error updating website details:', error);
-        return res.status(500).json({
-            status: false,
-            message: 'Unable to update the setting.',
-            errors: error.message,
-        });
+  try {
+    if (!name && !url && !title) {
+      return res.status(422).json({
+        status: false,
+        message: 'Validation failed',
+        errors: { fields: ['At least one field is required.'] },
+      });
     }
+
+    const websiteDetails = await prisma.website_details.findUnique({
+      where: { website_details_id: 1 },
+    });
+
+    if (!websiteDetails) {
+      return res.status(404).json({
+        status: false,
+        message: 'Website details not found.',
+      });
+    }
+
+    // ✅ Prepare updatable data
+    const updateData = {};
+    if (name) updateData.website_name = name;
+    if (url) updateData.website_url = url;
+    if (title) updateData.website_title = title;
+
+    // Store who updated (optional)
+    updateData.updated_by = JSON.stringify(admin || {});
+
+    // ✅ Update record
+    await prisma.website_details.update({
+      where: { website_details_id: 1 },
+      data: updateData,
+    });
+
+    return res.status(200).json({
+      status: true,
+      message: 'Website details have been updated successfully.',
+    });
+
+  } catch (error) {
+    console.error('Error updating website details:', error);
+    return res.status(500).json({
+      status: false,
+      message: 'Unable to update the setting.',
+      errors: error.message,
+    });
+  }
 };
 
 export const getWebsiteDetails = async (req, res) => {
   try {
     const websiteDetails = await prisma.website_details.findUnique({
-      where: { website_details_id: BigInt(1)}, 
+      where: { website_details_id: BigInt(1) },
       select: {
         website_details_id: true,
         website_name: true,
         website_url: true,
         website_title: true,
         updated_by: true,
+        logo_image: true,
+        favicon_image: true,
         created_at: true,
         updated_at: true,
+
       },
     });
 
@@ -168,8 +171,10 @@ export const updateLogoFavicon = async (req, res) => {
     for (const field of updatableFields) {
       if (files[field]) {
         const imageFile = files[field][0];
-        const relativePath = `images/website/${imageFile.filename}`;
-        data[`${field}_image`] = relativePath;
+        const baseUrl = process.env.APP_URL
+        const relativePath = `storage/images/webside/admin/${imageFile.filename}`;
+        const fullImageUrl = `${baseUrl}/${relativePath}`;
+        data[`${field}_image`] = fullImageUrl;
       }
     }
 

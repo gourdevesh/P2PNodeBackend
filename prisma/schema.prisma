@@ -96,6 +96,8 @@ model admins {
   created_at         DateTime?           @db.Timestamp(0)
   updated_at         DateTime?           @db.Timestamp(0)
   admin_assets       admin_assets[]
+  sent_support_ticket_messages support_ticket_messages[] @relation("AdminSentMessages")
+
 
 }
 
@@ -392,6 +394,8 @@ model reports {
   trade_id       BigInt?   @db.UnsignedBigInt
   created_at     DateTime? @db.Timestamp(0)
   updated_at     DateTime? @db.Timestamp(0)
+    reporter    users     @relation("Reporter", fields: [reported_by_id], references: [user_id])
+  reportedTo  users?    @relation("ReportedTo", fields: [reported_to_id], references: [user_id])
 
   @@index([reported_by_id], map: "reports_reported_by_id_foreign")
 }
@@ -441,14 +445,15 @@ model support_ticket_messages {
   stm_id          BigInt                              @id @default(autoincrement()) @db.UnsignedBigInt
   ticket_id       BigInt                              @db.UnsignedBigInt
   sender_type     support_ticket_messages_sender_type @default(user)
-  sender_id       BigInt                              @db.UnsignedBigInt
+  admin_sender_id BigInt?   @db.UnsignedBigInt
+  sender_id       BigInt?     @db.UnsignedBigInt
   message         String?                             @db.Text
   attachments     String?                             @db.LongText
   created_at      DateTime?                           @db.Timestamp(0)
   updated_at      DateTime?                           @db.Timestamp(0)
-  support_tickets support_tickets                     @relation(fields: [ticket_id], references: [ticket_id], onDelete: Cascade, onUpdate: Restrict, map: "support_ticket_messages_ticket_id_foreign")
-  sender          users                               @relation("UserSentMessages", fields: [sender_id], references: [user_id])
-
+  ticket       support_tickets    @relation(fields: [ticket_id], references: [ticket_id], onDelete: Cascade)
+ sender users?   @relation("UserSentMessages", fields: [sender_id], references: [user_id]) 
+admin_sender admins?  @relation("AdminSentMessages", fields: [admin_sender_id], references: [admin_id])
   @@index([ticket_id], map: "support_ticket_messages_ticket_id_foreign")
 }
 
@@ -613,6 +618,9 @@ model users {
   support_tickets              support_tickets[]
   sent_support_ticket_messages support_ticket_messages[] @relation("UserSentMessages")
     crypto_ads       crypto_ads[]
+      reportedBy    reports[] @relation("Reporter")
+  reportedUsers reports[] @relation("ReportedTo")
+
 
 }
 

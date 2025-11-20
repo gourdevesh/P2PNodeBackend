@@ -128,7 +128,7 @@ router.get("/countries/currency", authenticateAdmin, getCountriesCurrency);
 router.get("/countries/dialing-code", authenticateAdmin, getCountriesDialingCode);
 router.get("/countries/name", authenticateAdmin, getCountries);
 router.get("/countries/timezone", authenticateAdmin, getTimezone);
-router.post("/admin/website/update-logo-favicon", authenticateAdmin, uploadMultiple, updateLogoFavicon);
+router.post("/admin/website/update-logoAndFavicon", authenticateAdmin, uploadMultiple, updateLogoFavicon);
 router.post("/admin/notifications",formData, authenticateAdmin, storeNotification);
 router.delete("/admin/delete-notifications/:id", authenticateAdmin, deleteNotification);
 router.delete("/admin/auth/logout",formData, authenticateAdmin, logOut);

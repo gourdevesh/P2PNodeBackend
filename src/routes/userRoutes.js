@@ -2,7 +2,7 @@ import express from "express";
 
 import { authenticateUser } from "../middleware/authMiddleware.js";
 import { sendEmailOtp, verifyEmailOtp } from "../controller/OtpController.js";
-import { login, register } from "../controller/user/AuthController.js";
+import { login, logout, passwordVerification, register, resetPassword, sendResetLink, updateTwoFA, updateTwoFaSet } from "../controller/user/AuthController.js";
 import { changePassword, getReferralLink, getSecurityQuestion, loginHistory, securityQuestion, updateBio, updateProfileImage, updateUsername, userDetail } from "../controller/user/UserController.js";
 import { addressVerification, getAddressVerification, getIdDetails, storeAddress } from "../controller/user/AddressVerificationController.js";
 import { singelUpload, upload, uploadAttachments } from "../middleware/upload.js";
@@ -16,8 +16,10 @@ import { buyerUpdateTrade, cancelTrade, getTradeFeedback, getTradeHistory, giveF
 import { closeTicket, getParticularTickets, getTickets, replySupportTicket, storeTicket } from "../controller/user/UserSupportTicketController.js";
 import { getTransactionDetails, sendAsset } from "../controller/user/TransactionController.js";
 import { createWeb3Wallet, decryptedData, fetchUserByUsernameAndAddress, getWalletKeyPhrase, getWeb3WalletDetails, updateWeb3Wallet } from "../controller/user/Web3WalletController.js";
+import { sendWelcomeEmail } from "../controller/EmailController.js";
+import { getReport, getUsersReport, storeReport } from "../controller/ReportController.js";
 const router = express.Router();
-router.post("/auth/register", register);
+router.post("/auth/register",formData, register);
 router.post("/auth/login", formData, login);
 router.post("/verify-email-otp", authenticateUser, verifyEmailOtp);
 router.post("/send-email-otp", authenticateUser, sendEmailOtp);
@@ -65,11 +67,22 @@ router.get("/transaction/get-transaction", authenticateUser, getTransactionDetai
 router.post("/transaction/send-asset", formData, authenticateUser, sendAsset);
 router.post("/web3-wallet/create-web3-wallet", formData, authenticateUser, createWeb3Wallet);
 router.get("/web3-wallet/get-walletKeyPhrase", authenticateUser, getWalletKeyPhrase);
-router.post("/web3-wallet/decrypt-data",formData, authenticateUser, decryptedData);
+router.post("/web3-wallet/decrypt-data", formData, authenticateUser, decryptedData);
 router.get("/web3-wallet/get-web3-wallet", authenticateUser, getWeb3WalletDetails);
 router.get("/web3-wallet/get-user-detail", authenticateUser, fetchUserByUsernameAndAddress);
 router.post("/web3-wallet/update-web3-wallet", formData, authenticateUser, updateWeb3Wallet);
 router.post("/trade/buyer-update-trade", uploadImage.single("image"), authenticateUser, buyerUpdateTrade);
+router.post("/send-welcome-email", authenticateUser, sendWelcomeEmail);
+router.post("/report/store-report", formData, authenticateUser, storeReport);
+router.get("/report/get-report", authenticateUser, getReport);
+router.get("/admin/report/get-report", authenticateUser, getUsersReport);
+router.post("/auth/update-2fa",formData, authenticateUser, updateTwoFA);
+router.post("/auth/update-2fa-set",formData, authenticateUser, updateTwoFaSet);
+router.post("/auth/forgot-password",formData, sendResetLink);
+router.post("/auth/reset-password",formData, resetPassword);
+router.post("/auth/password-verification",formData,authenticateUser, passwordVerification);
+router.delete("/auth/logout",authenticateUser, logout);
+
 
 
 export default router;

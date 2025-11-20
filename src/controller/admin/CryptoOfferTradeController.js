@@ -6,6 +6,7 @@ import dayjs from 'dayjs';
 
 export const getTradeHistory = async (req, res) => {
     const admin = req.admin; // assuming middleware sets admin data
+    console.log(admin)
     try {
         const perPage = parseInt(req.query.per_page) || 10;
         const userId = req.query.user_id ? (req.query.user_id) : null;

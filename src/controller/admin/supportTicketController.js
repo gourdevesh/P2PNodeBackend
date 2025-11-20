@@ -237,23 +237,27 @@ export const closeTicket = async (req, res) => {
 
 
 export const replySupportTicket = async (req, res) => {
-    const admin = req.admin; // assume auth middleware sets req.admin
+    const admin = req.admin; // from auth middleware
     const { ticket_id, message } = req.body;
-    const attachments = req.files || []; // Multer uploaded files
+    const attachments = req.files || [];
 
     try {
-        // 1. Validation
-        if (!ticket_id || !message) {
-            return res.status(422).json({
-                status: false,
-                message: 'Validation failed',
-                errors: [
-                    !ticket_id ? { ticket_id: 'ticket_id is required' } : null,
-                    !message ? { message: 'Message is required' } : null,
-                ].filter(Boolean),
-            });
+        // 1️⃣ Validation
+        const errors = {};
+        if (!ticket_id) errors.ticket_id = ['ticket_id is required'];
+        if (!message) errors.message = ['Message is required'];
+        if (attachments.length > 5) errors.attachments = ['You can upload max 5 attachments'];
+
+        let totalSize = attachments.reduce((acc, file) => acc + file.size, 0);
+        if (totalSize > 100 * 1024 * 1024) {
+            errors.attachments = ['Total attachment size cannot exceed 100MB.'];
         }
 
+        if (Object.keys(errors).length > 0) {
+            return res.status(422).json({ status: false, message: 'Validation failed', errors });
+        }
+
+        // 2️⃣ Check ticket existence
         const supportTicket = await prisma.support_tickets.findUnique({
             where: { ticket_id: BigInt(ticket_id) },
         });
@@ -264,63 +268,34 @@ export const replySupportTicket = async (req, res) => {
                 message: 'Support ticket not found for the given ticket id.',
             });
         }
-        const errors = {};
 
-        if (attachments.length > 5) {
-            errors.attachments = ["You can upload max 5 attachments"];
-        }
-
-        if (Object.keys(errors).length > 0) {
-            return res.status(422).json({
-                status: false,
-                message: "Validation failed.",
-                errors,
-            });
-        }
-        let totalSize = 0;
-        attachments.forEach((file) => (totalSize += file.size));
-
-        if (totalSize > 100 * 1024 * 1024) {
-            return res.status(422).json({
-                status: false,
-                message: "Validation failed.",
-                errors: {
-                    attachments: ["Total attachment size cannot exceed 100MB."],
-                },
-            });
-        }
+        // 3️⃣ Prepare attachment URLs
         const APP_URL = process.env.APP_URL;
-
-        const finalUrls = attachments.map((file) => {
-            let clean = file.path
-                .replace(/\\/g, "/")              // Fix Windows slashes
-                .replace("storage/app/public/", "storage/"); // remove extra parts
-
+        const finalUrls = attachments.map(file => {
+            let clean = file.path.replace(/\\/g, '/').replace('storage/app/public/', 'storage/');
             return `${APP_URL}/${clean}`;
         });
 
-        console.log(admin.admin_id)
-        // 4. Transaction
+        // 4️⃣ Insert message and update ticket in a transaction
         await prisma.$transaction(async (tx) => {
-            // Insert new message
             await tx.support_ticket_messages.create({
                 data: {
                     ticket_id: BigInt(ticket_id),
-                    sender_type: "admin",
-                    sender_id: BigInt(admin.admin_id),
+                    sender_type: 'admin',
+                    admin_sender_id: BigInt(admin.admin_id), 
                     message,
-                    attachments: JSON.stringify(finalUrls),
+                    attachments: finalUrls.length ? JSON.stringify(finalUrls) : null,
                     created_at: new Date(),
                     updated_at: new Date(),
                 },
             });
 
-            // Update ticket status
             await tx.support_tickets.update({
                 where: { ticket_id: BigInt(ticket_id) },
-                data: { status: "in_progress" },
+                data: { status: 'in_progress' },
             });
         });
+
         return res.status(200).json({
             status: true,
             message: 'Successfully replied to the support ticket.',

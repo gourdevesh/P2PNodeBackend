@@ -8,6 +8,10 @@ import moment from "moment";
 import { convertBigIntToString } from "../../config/convertBigIntToString.js";
 import { v4 as uuidv4 } from 'uuid';
 import dayjs from "dayjs";
+import crypto from "crypto";
+import nodemailer from "nodemailer";
+import { subDays } from "date-fns";
+
 
 const prisma = new PrismaClient();
 const detector = new DeviceDetector();
@@ -172,56 +176,60 @@ export const login = async (req, res) => {
   const { username, password } = req.body;
 
   try {
-    // ✅ Basic validation
+    // ------------------------
+    // VALIDATION
+    // ------------------------
     if (!username || !password) {
       return res.status(422).json({
         status: false,
         message: "Validation failed",
-        errors: { username: "Username is required", password: "Password is required" },
+        errors: {
+          username: "Username is required",
+          password: "Password is required",
+        },
       });
     }
 
-    // ✅ Detect login field (email or phone)
+    // ------------------------
+    // DETERMINE LOGIN FIELD
+    // ------------------------
     const field = username.includes("@") ? "email" : "phone_number";
-    console.log(field)
-    console.log(username)
 
-    // ✅ Find user
-    const user = await prisma.users.findFirst({
-      where: { [field]: username },
-    });
-    console.log(user)
-
+    // ------------------------
+    // FIND USER
+    // ------------------------
+    const user = await prisma.users.findFirst({ where: { [field]: username } });
     if (!user) {
       return res.status(401).json({ status: false, message: "Invalid credentials" });
     }
 
-    // ✅ Compare password
-    console.log(password)
-
-    const validPassword = await bcrypt.compare(password, user.password);
-    console.log("validPassword", validPassword)
-    if (!validPassword) {
+    // ------------------------
+    // CHECK PASSWORD
+    // ------------------------
+    const isPasswordValid = await bcrypt.compare(password, user.password);
+    if (!isPasswordValid) {
       return res.status(401).json({ status: false, message: "Invalid credentials" });
     }
 
-    // ✅ Check user status
+    // ------------------------
+    // CHECK USER STATUS
+    // ------------------------
     if (!["active", "block", "terminate"].includes(user.user_status)) {
       return res.status(403).json({
         status: false,
         message: "Invalid user status. Please contact support.",
       });
     }
-
     if (user.user_status === "block") {
       return res.status(403).json({ status: false, message: "User is blocked. Please contact support." });
     }
-
     if (user.user_status === "terminate") {
       return res.status(403).json({ status: false, message: "User account is terminated." });
     }
 
-    // ✅ If active, process login details
+    // ------------------------
+    // ACTIVE USER LOGIN
+    // ------------------------
     if (user.user_status === "active") {
       const ipAddress =
         req.headers["x-forwarded-for"] ||
@@ -229,10 +237,12 @@ export const login = async (req, res) => {
         req.headers["x-real-ip"] ||
         req.ip;
 
-      const deviceDetector = new DeviceDetector();
-      const device = deviceDetector.parseOs(req.headers["user-agent"]);
+const detector = new DeviceDetector();
+      const device = detector.parseOs(req.headers["user-agent"]);
 
-      // ✅ Update user login details
+      // ------------------------
+      // UPDATE USER LOGIN INFO
+      // ------------------------
       const updatedUser = await prisma.users.update({
         where: { user_id: BigInt(user.user_id) },
         data: {
@@ -245,34 +255,52 @@ export const login = async (req, res) => {
         },
       });
 
-      // ✅ Generate JWT token
-
+      // ------------------------
+      // GENERATE TOKEN
+      // ------------------------
       const token = jwt.sign(
         {
-          userId: user.user_id.toString(), email: user.email, email_verified_at: user.email_verified_at,
-          address_verified_at: user.address_verified_at
+          userId: user.user_id.toString(),
+          // email: user.email,
+          // email_verified_at: user.email_verified_at,
+          // address_verified_at: user.address_verified_at,
         },
         process.env.JWT_SECRET || "secret",
         { expiresIn: "7d" }
       );
 
-
-      // ✅ Store login details
+      // ------------------------
+      // STORE LOGIN DETAILS
+      // ------------------------
       const deviceData = {
-        clientInfo: device.client,
-        osInfo: device.os,
-        device: device.device?.type,
-        brand: device.device?.brand,
-        model: device.device?.model,
+        clientInfo: device.client || {},
+        osInfo: device.os || {},
+        device: device.device?.type || null,
+        brand: device.device?.brand || null,
+        model: device.device?.model || null,
       };
 
+      const tokenId = uuidv4(); // unique token id
+
+
+      const tokenIds = await prisma.personal_access_tokens.create({
+  data: {
+    tokenable_type: "users", // table name ya model
+    tokenable_id: BigInt(user.user_id),
+    name: "User Token",
+    token: token, // JWT jo generate kiya
+    abilities: "logIn_by:user",
+    created_at: new Date(),
+  },
+});
+console.log("tokenIds",tokenIds)
       await prisma.user_login_details.create({
         data: {
-          user_id: user.user_id,
-          token_id: uuidv4(), // ✅ Added token_id
+          user_id: BigInt(user.user_id),
+          token_id: tokenId,
           ip_address: ipAddress,
           device_details: JSON.stringify(deviceData),
-          device: deviceData.device || null,
+          device: deviceData.device,
           browser: deviceData.clientInfo?.name || null,
           os: deviceData.osInfo?.name || null,
           os_version: deviceData.osInfo?.version || null,
@@ -281,9 +309,11 @@ export const login = async (req, res) => {
         },
       });
 
-      // ✅ Keep last 10 login records
+      // ------------------------
+      // KEEP LAST 10 LOGIN RECORDS
+      // ------------------------
       const allLogins = await prisma.user_login_details.findMany({
-        where: { user_id: user.user_id },
+        where: { user_id: BigInt(user.user_id) },
         orderBy: { login_details_id: "desc" },
         skip: 9,
         take: 1,
@@ -292,29 +322,27 @@ export const login = async (req, res) => {
       if (allLogins.length > 0) {
         const cutoffId = allLogins[0].login_details_id;
         await prisma.user_login_details.deleteMany({
-          where: {
-            user_id: user.user_id,
-            login_details_id: { lt: cutoffId },
-          },
+          where: { user_id: BigInt(user.user_id), login_details_id: { lt: cutoffId } },
         });
       }
 
-      // ✅ Two-factor authentication (2FA)
+      // ------------------------
+      // TWO-FACTOR AUTH (2FA)
+      // ------------------------
       if (user.two_factor_auth) {
         const otp = Math.floor(100000 + Math.random() * 900000);
-        const existingOtp = await prisma.email_otps.findFirst({
-          where: { user_id: user.user_id },
-        });
+
+        const existingOtp = await prisma.email_otps.findFirst({ where: { user_id: BigInt(user.user_id) } });
 
         if (existingOtp) {
           await prisma.email_otps.update({
-            where: { id: existingOtp.id },
+            where: { otp_id: BigInt(existingOtp.otp_id) },
             data: { otp, expires_at: dayjs().add(5, "minute").toDate() },
           });
         } else {
           await prisma.email_otps.create({
             data: {
-              user_id: user.user_id,
+              user_id: BigInt(user.user_id),
               email: user.email,
               otp,
               expires_at: dayjs().add(5, "minute").toDate(),
@@ -322,11 +350,12 @@ export const login = async (req, res) => {
           });
         }
 
-        // TODO: implement email sending here (e.g. using nodemailer)
         console.log(`Send 2FA email to ${user.email} with OTP: ${otp}`);
       }
 
-      // ✅ Return success response
+      // ------------------------
+      // RETURN RESPONSE
+      // ------------------------
       return res.status(200).json({
         status: true,
         message: "Login successful",
@@ -345,6 +374,494 @@ export const login = async (req, res) => {
     return res.status(500).json({
       status: false,
       message: "An error occurred. Please try again.",
+      errors: error.message,
+    });
+  }
+
+}
+
+export const updateTwoFA = async (req, res) => {
+  try {
+    // Logged-in user
+    const user = req.user;
+    if (!user) {
+      return res.status(401).json({
+        status: false,
+        message: "User not found."
+      });
+    }
+
+    // ===============================
+    // Convert incoming value to real boolean
+    // ===============================
+    let two_fa = req.body.two_fa;
+
+    if (two_fa === "true") two_fa = true;
+    else if (two_fa === "false") two_fa = false;
+    else if (typeof two_fa !== "boolean") {
+      return res.status(422).json({
+        status: false,
+        message: "Validation failed",
+        errors: { two_fa: ["two_fa must be boolean"] }
+      });
+    }
+
+    // ===============================
+    // DB Transaction
+    // ===============================
+    const result = await prisma.$transaction(async (tx) => {
+
+      // Update user 2FA settings
+      const updatedUser = await tx.users.update({
+        where: { user_id: user.user_id },
+        data: {
+          two_factor_auth: two_fa,
+          two_fa_otp_verified: two_fa
+        }
+      });
+
+      // Update Login Details
+      await tx.user_login_details.updateMany({
+        where: { user_id: BigInt(user.user_id) },
+        data: { two_fa_otp_verified: two_fa }
+      });
+
+      // Notification
+      const notificationData = {
+        user_id: user.user_id,
+        title: two_fa ? "2FA Enabled." : "2FA Disabled.",
+        message: two_fa
+          ? "Two Factor Authentication has been enabled."
+          : "Two Factor Authentication has been disabled.",
+        type: "security",
+        is_read: false
+      };
+
+      await tx.notifications.create({ data: notificationData });
+
+      return updatedUser;
+    });
+
+    return res.status(200).json({
+      status: true,
+      message: "Two-factor authentication updated successfully!!",
+      data: {
+        storedTwoFactorAuth: result.two_factor_auth,
+        inputTwoFactorAuth: two_fa
+      }
+    });
+
+  } catch (err) {
+    return res.status(500).json({
+      status: false,
+      message: "Unable to update two-factor authentication.",
+      errors: err.message
+    });
+  }
+};
+
+export const updateTwoFaSet = async (req, res) => {
+  const user = req.user;
+
+  try {
+    // VALIDATION
+    const { twoFaValue, action } = req.body;
+
+    const validTwoFaValues = ["buy", "sell"];
+    const validActions = ["enable", "disable"];
+
+    if (!validTwoFaValues.includes(twoFaValue)) {
+      return res.status(422).json({
+        status: false,
+        message: "Validation failed",
+        errors: { twoFaValue: ["twoFaValue must be buy or sell"] }
+      });
+    }
+
+    if (!validActions.includes(action)) {
+      return res.status(422).json({
+        status: false,
+        message: "Validation failed",
+        errors: { action: ["action must be enable or disable"] }
+      });
+    }
+
+    // ------------------------------------
+    // PARSE existing DB value (string → array)
+    let twoFaSet = [];
+
+    if (user.two_fa_set) {
+      try {
+        twoFaSet = JSON.parse(user.two_fa_set);   // <- FIX
+      } catch (e) {
+        twoFaSet = [];
+      }
+    }
+
+    // ------------------------------------
+    // SAME LOGIC
+    const alreadyExists = twoFaSet.includes(twoFaValue);
+
+    if ((alreadyExists && action === "enable") ||
+      (!alreadyExists && action === "disable")) {
+      return res.status(400).json({
+        status: false,
+        message: `Two-factor authentication already ${action === "enable" ? "enabled." : "disabled."}`
+      });
+    }
+
+    if (action === "enable") {
+      if (!alreadyExists) twoFaSet.push(twoFaValue);
+    } else {
+      twoFaSet = twoFaSet.filter(v => v !== twoFaValue);
+    }
+
+    // ------------------------------------
+    // SAVE ARRAY AS STRING
+    const updatedUser = await prisma.users.update({
+      where: { user_id: BigInt(user.user_id) },
+      data: {
+        two_fa_set: JSON.stringify(twoFaSet)   // <- FIX
+      }
+    });
+
+    return res.status(200).json({
+      status: true,
+      message: "Two-factor authentication set updated successfully.",
+      data: {
+        twoFaSet,
+        action
+      }
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      status: false,
+      message: "Unable to update two-factor authentication set.",
+      errors: error.message
+    });
+  }
+};
+
+
+export const sendResetLink = async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    // ------------------------
+    // VALIDATION
+    if (!email) {
+      return res.status(422).json({
+        status: false,
+        message: "Validation failed",
+        errors: { email: ["Email is required"] },
+      });
+    }
+
+    const user = await prisma.users.findUnique({ where: { email } });
+
+    if (!user) {
+      return res.status(404).json({
+        status: "not_found",
+        message: "The provided email does not exist in our records.",
+      });
+    }
+
+    // ------------------------
+    // GENERATE TOKEN
+    const token = crypto.randomBytes(32).toString("hex");
+
+    // ------------------------
+    // SAVE OR UPDATE TOKEN (PRIMARY KEY FIX)
+    const existingToken = await prisma.password_reset_tokens.findUnique({
+      where: { email },
+    });
+
+    if (existingToken) {
+      await prisma.password_reset_tokens.update({
+        where: { email },
+        data: { token, created_at: new Date() },
+      });
+    } else {
+      await prisma.password_reset_tokens.create({
+        data: { email, token, created_at: new Date() },
+      });
+    }
+
+    // ------------------------
+    // SEND EMAIL
+    const transporter = nodemailer.createTransport({
+      host: process.env.MAIL_HOST,
+      port: parseInt(process.env.MAIL_PORT),
+      secure: process.env.MAIL_ENCRYPTION === "ssl", // tls ya ssl
+      auth: {
+        user: process.env.MAIL_USERNAME,
+        pass: process.env.MAIL_PASSWORD,
+      },
+    });
+
+    const resetUrl = `${process.env.APP_URL}/reset-password?token=${token}`;
+
+    await transporter.sendMail({
+      from: process.env.MAIL_FROM_ADDRESS,
+      to: user.email,
+      subject: "Reset Your Password",
+      html: `
+        <p>Hello ${user.name || ""},</p>
+        <p>You requested a password reset. Click the link below to reset your password:</p>
+        <a href="${resetUrl}">${resetUrl}</a>
+        <p>If you didn't request a password reset, please ignore this email.</p>
+      `,
+    });
+
+    return res.status(200).json({
+      status: true,
+      message: "Password reset link sent to your email.",
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      status: false,
+      message: "Something went wrong. Please try again later.",
+      errors: error.message,
+    });
+  }
+};
+
+
+export const resetPassword = async (req, res) => {
+  try {
+    const { email, token, password } = req.body;
+
+    // ------------------------
+    // VALIDATION
+    if (!email || !token || !password) {
+      return res.status(422).json({
+        status: false,
+        message: "Validation failed",
+        errors: {
+          email: !email ? ["Email is required"] : undefined,
+          token: !token ? ["Token is required"] : undefined,
+          password: !password ? ["Password is required"] : undefined,
+        },
+      });
+    }
+
+    // Password rules check
+    if (!/[A-Z]/.test(password)) return res.status(422).json({ status: false, message: "Password must contain at least one uppercase letter." });
+    if (!/[a-z]/.test(password)) return res.status(422).json({ status: false, message: "Password must contain at least one lowercase letter." });
+    if (!/[0-9]/.test(password)) return res.status(422).json({ status: false, message: "Password must contain at least one number." });
+    if (!/[!@#$%^&*(),.?":{}|<>]/.test(password)) return res.status(422).json({ status: false, message: "Password must contain at least one special character." });
+
+    // ------------------------
+    // FETCH TOKEN DATA
+    const tokenData = await prisma.password_reset_tokens.findUnique({
+      where: { email },
+    });
+
+    if (!tokenData) {
+      return res.status(400).json({
+        status: "failed",
+        message: "Invalid email or token.",
+      });
+    }
+
+    // ------------------------
+    // TOKEN EXPIRY CHECK (60 minutes)
+    const tokenCreatedTime = new Date(tokenData.created_at);
+    const expiresAt = new Date(tokenCreatedTime.getTime() + 60 * 60 * 1000); // 60 mins
+    if (new Date() > expiresAt) {
+      return res.status(400).json({
+        status: "failed",
+        message: "Token has expired.",
+      });
+    }
+
+    // ------------------------
+    // TOKEN MATCH CHECK
+    console.log(tokenData.token)
+    if (token !== tokenData.token) {
+      return res.status(400).json({
+        status: "failed",
+        message: "The password reset token is invalid.",
+      });
+    }
+
+
+    // ------------------------
+    // FETCH USER
+    const user = await prisma.users.findUnique({ where: { email } });
+    if (!user) {
+      return res.status(401).json({
+        status: "Unauthorized",
+        message: "User not found.",
+      });
+    }
+
+    // ------------------------
+    // UPDATE PASSWORD
+    const hashedPassword = await bcrypt.hash(password, 10);
+    await prisma.users.update({
+      where: { email },
+      data: { password: hashedPassword },
+    });
+
+    // OPTIONAL: send notification
+    // await sendNotification({
+    //   userId: user.user_id,
+    //   title: "Password reset successfully.",
+    //   message: "Your password has been successfully reset. If you did not perform this action, please secure your account immediately.",
+    //   type: "account_activity",
+    //   isRead: false,
+    // });
+
+    // ------------------------
+    // DELETE USED TOKEN
+    await prisma.password_reset_tokens.delete({ where: { email } });
+
+    return res.status(200).json({
+      status: true,
+      message: "Password reset successfully.",
+    });
+  } catch (error) {
+    return res.status(500).json({
+      status: false,
+      message: "Something went wrong.",
+      errors: error.message,
+    });
+  }
+};
+
+
+export const passwordVerification = async (req, res) => {
+  const user = req.user; // assuming auth middleware sets req.user
+
+  if (!user) {
+    return res.status(401).json({
+      status: "unauthorized",
+      message: "User not authenticated",
+    });
+  }
+
+  try {
+    const { password } = req.body;
+    console.log("Received password:", password);
+
+    // -------------------
+    // VALIDATION
+    if (!password || typeof password !== "string") {
+      return res.status(422).json({
+        status: false,
+        message: "Validation failed",
+        errors: { password: ["Password is required and must be a string"] },
+      });
+    }
+
+    // -------------------
+    // CHECK PASSWORD
+    const isMatch = await bcrypt.compare(password, user.password);
+
+    if (!isMatch) {
+      return res.status(200).json({
+        status: true,
+        message: "Password is incorrect",
+        passwordVerified: false,
+      });
+    }
+
+    // -------------------
+    // SUCCESS
+    return res.status(200).json({
+      status: true,
+      message: "Password verified successfully.",
+      passwordVerified: true,
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      status: false,
+      message: "Something went wrong.",
+      errors: error.message,
+    });
+  }
+};
+
+
+
+export const logout = async (req, res) => {
+  const user = req.user; // Auth middleware sets req.user
+  console.log(user.token)
+  if (!user) {
+    return res.status(401).json({
+      status: "unauthorized",
+      message: "User not authenticated",
+    });
+  }
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      // ------------------------
+      // FIND CURRENT TOKEN
+      // ------------------------
+      const currentToken = await tx.personal_access_tokens.findFirst({
+        where: {
+          tokenable_type: "users",
+          tokenable_id: BigInt(user.user_id),
+          token: user.token, // JWT from request
+        },
+      });
+      console.log(currentToken)
+
+      if (!currentToken) {
+        throw { status: 409, message: "Token has already been logged out or invalid" };
+      }
+
+      const tokenId = currentToken.id;
+
+      // ------------------------
+      // DELETE CURRENT TOKEN
+      // ------------------------
+      await tx.personal_access_tokens.delete({ where: { id: tokenId } });
+
+      // ------------------------
+      // UPDATE LOGIN DETAILS
+      // ------------------------
+      await tx.user_login_details.updateMany({
+        where: { user_id: BigInt(user.user_id), token_id: tokenId.toString() },
+        data: { login_status: "logout", two_fa_otp_verified: false },
+      });
+
+      // ------------------------
+      // CHECK ACTIVE TOKENS IN LAST 7 DAYS
+      // ------------------------
+      const hasActiveTokens = await tx.personal_access_tokens.findFirst({
+        where: {
+          tokenable_type: "users",
+          tokenable_id: BigInt(user.user_id),
+          created_at: { gte: subDays(new Date(), 7) },
+        },
+      });
+
+      if (!hasActiveTokens) {
+        // UPDATE USER STATUS IF NO ACTIVE TOKENS
+        await tx.users.update({
+          where: { user_id: BigInt(user.user_id) },
+          data: { login_status: "logout", two_fa_otp_verified: false },
+        });
+      }
+
+      // ------------------------
+      // SUCCESS RESPONSE
+      // ------------------------
+      return res.status(200).json({
+        status: true,
+        message: "Successfully logged out",
+      });
+    });
+  } catch (error) {
+    return res.status(error.status || 500).json({
+      status: false,
+      message: error.message || "Something went wrong.",
       errors: error.message,
     });
   }
