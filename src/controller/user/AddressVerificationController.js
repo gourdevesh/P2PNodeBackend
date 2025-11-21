@@ -167,9 +167,32 @@ export const getAddressVerification = async (req, res) => {
 
 export const storeAddress = async (req, res) => {
     let tx;
-
+    console.log(req.body)
     try {
         const user = req.user; // coming from auth middleware
+        // enum mapping (frontend -> prisma)
+        const idTypeMap = {
+            "passport": "passport",
+            "driving licence": "driving_licence",
+            "id card": "id_card"
+        };
+
+        // normalize input
+        const userIdType = req.body.id_type?.toLowerCase()?.trim();
+
+        // check valid
+        if (!idTypeMap[userIdType]) {
+            return res.status(422).json({
+                status: false,
+                message: "Validation failed.",
+                errors: {
+                    id_type: ["id_type must be passport, driving licence, or id card"]
+                },
+            });
+        }
+
+        req.body.id_type = idTypeMap[userIdType]; // convert for Prisma
+
 
         // ---------------- Email Verification Check ----------------
         if (!user.email_verified_at) {
@@ -256,7 +279,7 @@ export const storeAddress = async (req, res) => {
                     issuing_country: req.body.issuing_country,
                     id_type: req.body.id_type,
                     residence_country: req.body.residence_country,
-                    residence_state: req.body.residence_state,
+                    residence_State: req.body.residence_state,
                     residence_city: req.body.residence_city,
                     address_line1: req.body.address_line1,
                     address_line2: req.body.address_line2 || null,
@@ -293,13 +316,14 @@ export const storeAddress = async (req, res) => {
         });
     }
 };
+
 export const getIdDetails = async (req, res) => {
     try {
         const user = req.user; // from auth middleware
 
         // -------- Fetch Latest ID Record --------
         const idData = await prisma.addresses.findFirst({
-            where: { user_id: BigInt(user.user_id )},
+            where: { user_id: BigInt(user.user_id) },
             orderBy: { address_id: "desc" },
         });
 

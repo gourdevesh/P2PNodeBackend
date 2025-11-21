@@ -69,6 +69,28 @@ export const validateSecurityQuestions = [
     .withMessage("Answer must be a string"),
 ];
 
+export const validateUpiUpdate = [
+  body("id").isInt().withMessage("id must be an integer"),
+  body("upi_name")
+    .isString()
+    .isIn(["phonepe", "google pay", "paytm", "amazon pay"])
+    .withMessage("Invalid upi_name"),
+  body("upi_id").isString().withMessage("upi_id is required"),
+  body("caption").optional().isString(),
+  body("is_primary").optional().isBoolean(),
+];
 
+export const validatePreferredCurrency = [
+  body("preferred_currency").notEmpty().withMessage("preferred_currency is required").isString().withMessage("preferred_currency must be a string"),
+];
+
+
+export const validatePreferredTimezone = [
+  body("preferred_timezone")
+    .notEmpty()
+    .withMessage("preferred_timezone is required")
+    .isString()
+    .withMessage("preferred_timezone must be a string"),
+];
 
 export const formData = multer().none();

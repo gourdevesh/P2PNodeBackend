@@ -382,16 +382,14 @@ export const loginAdmin = async (req, res) => {
     const token = jwt.sign(
       {
         adminId: updatedAdmin.admin_id.toString(),
-        role: updatedAdmin.role,
-        nonce: crypto.randomBytes(8).toString("hex"), // ensures uniqueness
       },
       process.env.JWT_SECRET || "secret",
       { expiresIn: "1d" }
     );
 
-    await prisma.personal_access_tokens.create({
+  const tokenId =  await prisma.personal_access_tokens.create({
       data: {
-        tokenable_type: "Admin",
+        tokenable_type: "admin",
         tokenable_id: updatedAdmin.admin_id,
         name: "Admin Token",
         token,
@@ -406,7 +404,7 @@ export const loginAdmin = async (req, res) => {
       status: true,
       message: "Login successfully",
       admin: {
-        admin_id: updatedAdmin.admin_id?.toString(), // ? ensures no error if undefined
+        admin_id: updatedAdmin.admin_id?.toString(),
         name: updatedAdmin.name,
         email: updatedAdmin.email,
         phone_number: updatedAdmin.phone_number,

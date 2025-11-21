@@ -2,6 +2,9 @@ import { PrismaClient } from "@prisma/client";
 import jwt from "jsonwebtoken";
 import dayjs from "dayjs";
 import nodemailer from "nodemailer";
+import { validationResult, body } from "express-validator";
+import axios from "axios";
+
 
 const prisma = new PrismaClient();
 
@@ -249,6 +252,67 @@ export const sendEmailOtp = async (req, res) => {
       status: false,
       message: "An error occurred. Please try again.",
       errors: error.message,
+    });
+  }
+};
+
+
+export const validateSendSmsOtp = [
+  body("phone_number")
+    .notEmpty().withMessage("phone_number is required")
+    .matches(/^\+?[1-9]\d{1,14}$/).withMessage("Invalid phone number format"),
+
+  body("country_code")
+    .notEmpty().withMessage("country_code is required")
+    .isString(),
+
+  // body("recaptcha_token").notEmpty().withMessage("recaptcha_token required"),
+];
+
+// ===============================
+// CONTROLLER FUNCTION
+// ===============================
+export const sendSmsOTP = async (req, res) => {
+  try {
+    // Validate fields
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(422).json({
+        status: false,
+        message: "Invalid phone number format.",
+        errors: errors.array(),
+      });
+    }
+
+    const { phone_number, country_code } = req.body;
+
+    const phone = country_code + phone_number;
+    const firebaseApiKey = process.env.FIREBASE_API_KEY;
+
+    const url = `https://www.googleapis.com/identitytoolkit/v3/relyingparty/sendVerificationCode?key=${firebaseApiKey}`;
+
+    // ===============================
+    // FIREBASE API CALL
+    // ===============================
+    const response = await axios.post(url, {
+      phoneNumber: phone,
+      // clientType: "CLIENT_TYPE_WEB",
+      // recaptchaToken: req.body.recaptcha_token,
+    });
+
+    return res.status(200).json({
+      status: true,
+      message: "OTP sent successfully.",
+      data: response.data,
+    });
+
+  } catch (err) {
+    console.error("Firebase OTP Error:", err?.response?.data || err.message);
+
+    return res.status(500).json({
+      status: false,
+      message: "Failed to send OTP.",
+      error: err?.response?.data || err.message,
     });
   }
 };

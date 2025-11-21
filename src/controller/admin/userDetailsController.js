@@ -46,10 +46,10 @@ export const getUser = async (req, res) => {
     // KYC & verification
     const email_verified = Boolean(user.email_verified_at);
     const phone_verified = Boolean(user.number_verified_at);
-    const kycVerified = user.address?.some(a => a.status === "verified");
+    const kycVerified = user.addresses?.some(a => a.status === "verified");
 
     // Successful address
-    const addressData = user.address?.find(a => a.status === "success") || null;
+    const addressData = user.addresses?.find(a => a.status === "success") || null;
 
     // User object
     const userData = {

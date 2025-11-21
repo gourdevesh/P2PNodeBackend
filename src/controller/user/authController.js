@@ -131,15 +131,25 @@ export const register = async (req, res) => {
       const deviceName = deviceInfo.device?.type || null;
 
       const token = jwt.sign(
-        { userId: user.user_id.toString(), email: user.email },
+        { userId: user.user_id.toString()},
         process.env.JWT_SECRET || "secret",
         { expiresIn: "1d" }
       );
+  const tokenIds = await prisma.personal_access_tokens.create({
+        data: {
+          tokenable_type: "users", // table name ya model
+          tokenable_id: BigInt(user.user_id),
+          name: "User Token",
+          token: token, // JWT jo generate kiya
+          abilities: "logIn_by:user",
+          created_at: new Date(),
+        },
+      });
 
-      await tx.user_login_details.create({
+   const loginDetail=   await tx.user_login_details.create({
         data: {
           user_id: user.user_id,
-          token_id: uuidv4(), // ✅ Add this line
+          token_id: tokenIds.toString() ,// ✅ Add this line
           ip_address: ipAddress,
           device_details: JSON.stringify({ clientInfo, osInfo, device: deviceName }),
           device: deviceName,
@@ -150,7 +160,7 @@ export const register = async (req, res) => {
           logged_in_at: new Date(),
         },
       });
-
+console.log(loginDetail)
       return { user: convertBigIntToString(user), token };
     });
     const safeData = convertBigIntToString(result)
@@ -237,7 +247,7 @@ export const login = async (req, res) => {
         req.headers["x-real-ip"] ||
         req.ip;
 
-const detector = new DeviceDetector();
+      const detector = new DeviceDetector();
       const device = detector.parseOs(req.headers["user-agent"]);
 
       // ------------------------
@@ -258,12 +268,15 @@ const detector = new DeviceDetector();
       // ------------------------
       // GENERATE TOKEN
       // ------------------------
+
+      // Convert UUID to numeric hash
+      // const tokenId = Array.from(uuidv4())
+      //   .reduce((acc, char) => acc + char.charCodeAt(0), 0);
+      // console.log(tokenId)
+
       const token = jwt.sign(
         {
           userId: user.user_id.toString(),
-          // email: user.email,
-          // email_verified_at: user.email_verified_at,
-          // address_verified_at: user.address_verified_at,
         },
         process.env.JWT_SECRET || "secret",
         { expiresIn: "7d" }
@@ -280,24 +293,21 @@ const detector = new DeviceDetector();
         model: device.device?.model || null,
       };
 
-      const tokenId = uuidv4(); // unique token id
-
 
       const tokenIds = await prisma.personal_access_tokens.create({
-  data: {
-    tokenable_type: "users", // table name ya model
-    tokenable_id: BigInt(user.user_id),
-    name: "User Token",
-    token: token, // JWT jo generate kiya
-    abilities: "logIn_by:user",
-    created_at: new Date(),
-  },
-});
-console.log("tokenIds",tokenIds)
-      await prisma.user_login_details.create({
+        data: {
+          tokenable_type: "users", // table name ya model
+          tokenable_id: BigInt(user.user_id),
+          name: "User Token",
+          token: token, // JWT jo generate kiya
+          abilities: "logIn_by:user",
+          created_at: new Date(),
+        },
+      });
+      const login = await prisma.user_login_details.create({
         data: {
           user_id: BigInt(user.user_id),
-          token_id: tokenId,
+          token_id: tokenIds.id.toString(),
           ip_address: ipAddress,
           device_details: JSON.stringify(deviceData),
           device: deviceData.device,
@@ -308,6 +318,7 @@ console.log("tokenIds",tokenIds)
           logged_in_at: new Date(),
         },
       });
+      console.log("login", login)
 
       // ------------------------
       // KEEP LAST 10 LOGIN RECORDS
@@ -790,7 +801,6 @@ export const passwordVerification = async (req, res) => {
 
 export const logout = async (req, res) => {
   const user = req.user; // Auth middleware sets req.user
-  console.log(user.token)
   if (!user) {
     return res.status(401).json({
       status: "unauthorized",
@@ -803,34 +813,34 @@ export const logout = async (req, res) => {
       // ------------------------
       // FIND CURRENT TOKEN
       // ------------------------
-      const currentToken = await tx.personal_access_tokens.findFirst({
-        where: {
-          tokenable_type: "users",
-          tokenable_id: BigInt(user.user_id),
-          token: user.token, // JWT from request
-        },
-      });
-      console.log(currentToken)
 
-      if (!currentToken) {
-        throw { status: 409, message: "Token has already been logged out or invalid" };
-      }
 
-      const tokenId = currentToken.id;
+      const tokenId = user.tokenId;
 
       // ------------------------
       // DELETE CURRENT TOKEN
       // ------------------------
-      await tx.personal_access_tokens.delete({ where: { id: tokenId } });
+      const exists = await tx.personal_access_tokens.findUnique({
+        where: { id: BigInt(tokenId) }
+      });
+
+      if (!exists) {
+        throw new Error("Token record not found in personal_access_tokens table");
+      }
+      await tx.personal_access_tokens.delete({
+        where: { id: BigInt(tokenId) }
+      });
+
 
       // ------------------------
       // UPDATE LOGIN DETAILS
       // ------------------------
-      await tx.user_login_details.updateMany({
-        where: { user_id: BigInt(user.user_id), token_id: tokenId.toString() },
+      const loginDetail = await tx.user_login_details.updateMany({
+        where: { user_id: BigInt(user.user_id), token_id: tokenId },
         data: { login_status: "logout", two_fa_otp_verified: false },
       });
 
+      console.log("loginDetail", loginDetail)
       // ------------------------
       // CHECK ACTIVE TOKENS IN LAST 7 DAYS
       // ------------------------
@@ -866,3 +876,177 @@ export const logout = async (req, res) => {
     });
   }
 };
+
+
+export const logoutFromOtherToken = async (req, res) => {
+  try {
+    const user = req.user;
+
+    if (!user) {
+      return res.status(401).json({
+        status: false,
+        message: "User not found"
+      });
+    }
+
+    const currentTokenId = user.tokenId; // must be provided by your auth middleware
+
+    await prisma.$transaction(async (tx) => {
+      // find other tokens
+      const otherTokens = await tx.personal_access_tokens.findMany({
+        where: {
+          tokenable_id: user.user_id,
+          id: { not: currentTokenId }
+        }
+      });
+
+      if (!otherTokens.length) {
+        throw new Error("There are no other active tokens available except the current one.");
+      }
+
+      // delete all other tokens except current token
+      await tx.personal_access_tokens.deleteMany({
+        where: {
+          tokenable_id: user.user_id,
+          id: { not: currentTokenId }
+        }
+      });
+
+      // update user login details for those tokens
+      await tx.user_login_details.updateMany({
+        where: {
+          user_id: user.user_id,
+          token_id: { not: String(currentTokenId) },
+          updated_at: new Date()
+          // convert to string if field is varchar
+        },
+        data: {
+          login_status: "logout",
+          two_fa_otp_verified: false
+        }
+      });
+    });
+
+    return res.status(200).json({
+      status: true,
+      message: "Successfully logout from all the tokens except current one."
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      status: false,
+      message: "Something went wrong.",
+      errors: error.message
+    });
+  }
+};
+
+
+export const addNumber = async (req, res) => {
+    let tx;
+    try {
+        const user = req.user; // from auth middleware
+
+        // ---------------- Email Verification Check ----------------
+        if (!user.email_verified_at) {
+            return res.status(403).json({
+                status: false,
+                message: "Please verify email before adding phone number.",
+            });
+        }
+
+        // ---------------- Validation ----------------
+        const { dialing_code, phone_number, verified } = req.body;
+
+        const errors = {};
+
+        // dialing_code validation
+        if (!dialing_code) {
+            errors.dialing_code = ["dialing_code is required"];
+        } else if (!/^\+\d{1,4}$/.test(dialing_code)) {
+            errors.dialing_code = ["dialing_code must be like +91, +1, +44"];
+        }
+
+        // phone_number validation
+        if (!phone_number) {
+            errors.phone_number = ["phone_number is required"];
+        } else if (!/^[1-9]\d{4,14}$/.test(phone_number)) {
+            errors.phone_number = [
+                "phone_number must be numeric and between 5 to 15 digits",
+            ];
+        } else {
+            const exists = await prisma.users.findFirst({
+                where: {
+                    phone_number,
+                    NOT: { user_id: user.user_id },
+                },
+            });
+            if (exists) {
+                errors.phone_number = ["phone_number already exists"];
+            }
+        }
+
+        // verified validation
+        const verifiedBool = verified === true || verified === "true" || verified === 1 || verified === "1";
+
+        if (verifiedBool === null || verifiedBool === undefined) {
+            errors.verified = ["verified must be boolean"];
+        }
+
+        if (Object.keys(errors).length > 0) {
+            return res.status(422).json({
+                status: false,
+                message: "validation failed.",
+                errors,
+            });
+        }
+
+        if (!verifiedBool) {
+            return res.status(422).json({
+                status: false,
+                message: "Verify phone number first",
+            });
+        }
+
+        // ---------------- Transaction Start ----------------
+        await prisma.$transaction(async (tx) => {
+            const operation = user.phone_number ? "update" : "add";
+
+            await tx.users.update({
+                where: { user_id: user.user_id },
+                data: {
+                    dialing_code,
+                    phone_number,
+                    number_verified_at: new Date(),
+                    user_level:
+                        user.email_verified_at && user.id_verified_at ? 1 : user.user_level,
+                },
+            });
+
+            // Add notification
+            await tx.notifications.create({
+                data: {
+                    user_id: user.user_id,
+                    title: "Phone number added successfully.",
+                    message:
+                        "Congractulations, You have just added and verified your phone number.",
+                    type: "account_activity",
+                    is_read: false,
+                },
+            });
+
+            res.status(operation === "add" ? 201 : 200).json({
+                status: true,
+                message: `Phone Number ${operation === "add" ? "added" : "updated"} successfully`,
+            });
+        });
+    } catch (err) {
+        console.log("addNumber ERROR:: ", err);
+        return res.status(500).json({
+            status: false,
+            message: "Unable to add/update phone number.",
+            errors: err.message,
+        });
+    }
+};
+2

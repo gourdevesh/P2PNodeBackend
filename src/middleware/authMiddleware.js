@@ -13,12 +13,26 @@ export const authenticateAdmin = async (req, res, next) => {
     const decoded = jwt.verify(token, process.env.JWT_SECRET || "secret");
 
     // Validate payload
-    if (!decoded.adminId || !decoded.role) {
+    if (!decoded.adminId) {
       return res.status(401).json({
         status: false,
         message: "Invalid token payload",
       });
     }
+
+    const currentToken = await prisma.personal_access_tokens.findFirst({
+      where: {
+        tokenable_type: "admin",
+        tokenable_id: decoded.userId,
+        token: token,
+      },
+    });
+    console.log(currentToken)
+
+    if (!currentToken) {
+      return res.status(401).json({ status: false, message: "admin is not authenticated" });
+    }
+
     const admins = await prisma.admins.findUnique({
       where: { admin_id: BigInt(decoded.adminId) },
       select: {
@@ -44,7 +58,7 @@ export const authenticateAdmin = async (req, res, next) => {
     // Set admin info on request
     req.admin = {
       admin_id: decoded.adminId,
-      role: decoded.role,
+      role: admins.role,
       token: token,
     };
 
@@ -74,27 +88,38 @@ export const authenticateUser = async (req, res, next) => {
         message: "Invalid token payload",
       });
     }
-    console.log(token)
+    const currentToken = await prisma.personal_access_tokens.findFirst({
+      where: {
+        tokenable_type: "users",
+        tokenable_id: BigInt(decoded.userId),
+        token: token, // JWT from request
+      },
+    });
+    console.log(currentToken)
 
-  const loginDetail = await prisma.user_login_details.findFirst({
-      where: { user_id: BigInt(decoded.userId), token_id: token, login_status: "login" },
+    if (!currentToken) {
+      return res.status(401).json({ status: false, message: "User is not authenticated" });
+    }
+
+    const loginDetail = await prisma.user_login_details.findFirst({
+      where: { user_id: BigInt(decoded.userId), token_id: currentToken.id.toString(), login_status: "login" },
     });
 
-    console.log(loginDetail)
+    console.log("loginDetail", loginDetail)
 
     if (!loginDetail) {
       return res.status(401).json({ status: false, message: "User is not authenticated" });
     }
 
-    
- const users = await prisma.users.findUnique({
+
+    const users = await prisma.users.findUnique({
       where: { user_id: BigInt(decoded.userId) },
       select: {
-     user_id: true,
-     password:true,
-     email:true,
-     email_verified_at:true,
-     address_verified_at:true,
+        user_id: true,
+        password: true,
+        email: true,
+        email_verified_at: true,
+        address_verified_at: true,
       }
     });
 
@@ -110,7 +135,8 @@ export const authenticateUser = async (req, res, next) => {
       email: users.email,
       email_verified_at: users.email_verified_at || null,
       password: users.password,
-      token
+      token,
+      tokenId: loginDetail.token_id
     };
     next();
   } catch (err) {

@@ -560,7 +560,7 @@ console.log(user)
     // Update user in database
     const updatedUser = await prisma.users.update({
       where: { user_id: user.user_id},
-      data: { profile_image: relativePath },
+      data: { profile_image: profileImageUrl },
     });
 
 
@@ -575,6 +575,79 @@ console.log(user)
       status: false,
       message: "Something went wrong. Please try again later!",
       errors: error.message,
+    });
+  }
+};
+
+
+export const preferredCurrency = async (req, res) => {
+  try {
+    // Validate request
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(422).json({
+        status: false,
+        message: "Validation failed",
+        errors: errors.array(),
+      });
+    }
+
+    const user = req.user; // Populated by your authenticateUser middleware
+    const { preferred_currency } = req.body;
+
+    // Update user's preferred currency
+    const updatedUser = await prisma.users.update({
+      where: { user_id: BigInt(user.user_id) },
+      data: { preferred_currency },
+    });
+
+    return res.status(200).json({
+      status: true,
+      message: "Preferred currency updated successfully!",
+      preferred_currency: updatedUser.preferred_currency,
+    });
+  } catch (error) {
+    console.error("❌ ERROR =>", error);
+    return res.status(500).json({
+      status: false,
+      message: "Unable to update preferred currency.",
+      errors: error.message || error,
+    });
+  }
+};
+
+export const preferredTimezone = async (req, res) => {
+  try {
+    // Validate request
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(422).json({
+        status: false,
+        message: "Validation failed",
+        errors: errors.array(),
+      });
+    }
+
+    const user = req.user; // Populated by your authenticateUser middleware
+    const { preferred_timezone } = req.body;
+
+    // Update user's preferred timezone
+    const updatedUser = await prisma.users.update({
+      where: { user_id: BigInt(user.user_id) },
+      data: { preferred_timezone },
+    });
+
+    return res.status(200).json({
+      status: true,
+      message: "Preferred timezone updated successfully!",
+      timezone: updatedUser.preferred_timezone,
+    });
+  } catch (error) {
+    console.error("❌ ERROR =>", error);
+    return res.status(500).json({
+      status: false,
+      message: "Unable to update preferred timezone.",
+      errors: error.message || error,
     });
   }
 };

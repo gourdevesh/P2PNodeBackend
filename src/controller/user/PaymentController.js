@@ -8,6 +8,7 @@ import sharp from "sharp";
 import fs from "fs";
 import path from "path";
 import moment from "moment";
+import { validationResult ,body} from "express-validator";
 
 dayjs.extend(relativeTime);
 dayjs.extend(utc);
@@ -275,15 +276,18 @@ export const addUpiDetails = async (req, res) => {
                 const file = req.file;
                 const extension = file.mimetype.split("/")[1];
                 const fileName = `${user.user_id}_${Date.now()}_${Math.random().toString(36).slice(2)}.${extension}`;
-                qr_code = `images/qr_code/${fileName}`;
-                const fullPath = path.join("public", qr_code);
-
+                // 1️⃣ Save the file to storage/app/public/images/qr_code
+                const fullPath = path.join("storage", "app", "public", "images", "qr_code", fileName);
                 fs.mkdirSync(path.dirname(fullPath), { recursive: true });
 
-                // Compress and save
+                // Save/compress the file
                 await sharp(file.buffer)
                     .toFormat(extension === "png" ? "png" : "jpeg", { quality: 75 })
                     .toFile(fullPath);
+
+                // 2️⃣ Set qr_code path for DB so it works with /storage route
+                qr_code = `${req.protocol}://${req.get("host")}/storage/images/qr_code/${fileName}`; // Remove storage/app/public
+
 
             }
 
@@ -323,7 +327,7 @@ export const addUpiDetails = async (req, res) => {
             user_id: tx.user_id.toString(),
             created_at: dayjs(tx.created_at).format("YYYY-MM-DD hh:mm:ss A"),
             created_at_duration: dayjs(tx.created_at).fromNow(),
-            qr_code_url: tx.qr_code ? `${req.protocol}://${req.get("host")}/public/${tx.qr_code}` : null,
+            qr_code_url: tx.qr_code ? tx.qr_code : null,
         };
 
         return res.status(201).json({ status: true, message: "UPI details added successfully.", data });
@@ -378,4 +382,351 @@ export const getUpiDetails = async (req, res) => {
             errors: error.message,
         });
     }
+};
+
+
+export const updatePaymentDetails = async (req, res) => {
+    const user = req.user;
+
+    try {
+        // -------------------- PRE-PROCESS INPUT --------------------
+        req.body.bank_account_country = req.body.bank_account_country?.toLowerCase();
+        req.body.ifsc_code = req.body.ifsc_code?.toUpperCase();
+        req.body.swift_bic_code = req.body.swift_bic_code?.toUpperCase();
+        req.body.account_type = req.body.account_type?.toLowerCase();
+
+        // -------------------- VALIDATION RULES --------------------
+        const requiredFields = [
+            "id",
+            "account_type",
+            "bank_name",
+            "account_holder_name",
+            "account_number"
+        ];
+
+        for (const field of requiredFields) {
+            if (!req.body[field]) {
+                return res.status(422).json({
+                    status: false,
+                    message: "Validation failed.",
+                    errors: { [field]: [`${field} is required`] }
+                });
+            }
+        }
+
+        // Account type check
+        const validAccountTypes = ["personal", "business"];
+        if (!validAccountTypes.includes(req.body.account_type)) {
+            return res.status(422).json({
+                status: false,
+                message: "Validation failed.",
+                errors: {
+                    account_type: ["account_type must be personal or business"]
+                }
+            });
+        }
+
+        // IFSC check (only if provided)
+        if (req.body.ifsc_code) {
+            const ifscRegex = /^[A-Za-z]{4}[0-9]{7}$/;
+            if (!ifscRegex.test(req.body.ifsc_code)) {
+                return res.status(422).json({
+                    status: false,
+                    message: "Validation failed.",
+                    errors: {
+                        ifsc_code: ["Invalid IFSC format"]
+                    }
+                });
+            }
+        }
+
+        // account_number numeric check
+        if (!/^[0-9]+$/.test(req.body.account_number)) {
+            return res.status(422).json({
+                status: false,
+                message: "Validation failed.",
+                errors: {
+                    account_number: ["account_number must be numeric"]
+                }
+            });
+        }
+
+        // -------------------- FETCH PAYMENT DETAIL --------------------
+        const paymentDetail = await prisma.payment_details.findFirst({
+            where: {
+                user_id: BigInt(user.user_id),
+                pd_id: Number(req.body.id)
+            }
+        });
+
+        if (!paymentDetail) {
+            return res.status(404).json({
+                status: false,
+                message: "No payment details found for the provided id."
+            });
+        }
+
+        // -------------------- IFSC required for India --------------------
+        if (
+            paymentDetail.bank_account_country === "india" &&
+            !req.body.ifsc_code
+        ) {
+            return res.status(422).json({
+                status: false,
+                message: "Validation failed.",
+                errors: {
+                    ifsc_code: ["The IFSC code is mandatory for bank accounts in India."]
+                }
+            });
+        }
+
+        // -------------------- UNIQUE account_number CHECK --------------------
+        const existingAccount = await prisma.payment_details.findFirst({
+            where: {
+                account_number: req.body.account_number,
+                NOT: { pd_id: Number(req.body.id) } // ignore current record
+            }
+        });
+
+        if (existingAccount) {
+            return res.status(422).json({
+                status: false,
+                message: "Validation failed.",
+                errors: {
+                    account_number: ["account_number already exists"]
+                }
+            });
+        }
+
+        // -------------------- START TRANSACTION --------------------
+        await prisma.$transaction(async (tx) => {
+            await tx.payment_details.update({
+                where: { pd_id: Number(req.body.id) },
+                data: {
+                    account_type: req.body.account_type,
+                    bank_name: req.body.bank_name,
+                    account_holder_name: req.body.account_holder_name,
+                    custom_bank_details: req.body.custom_bank_details || null,
+                    ifsc_code: req.body.ifsc_code || null,
+                    account_number: req.body.account_number,
+                    swift_bic_code: req.body.swift_bic_code || null,
+                    residence_country: req.body.residence_country || null,
+                    state_region: req.body.state_region || null,
+                    city: req.body.city || null,
+                    zip_code: req.body.zip_code || null,
+                    address: req.body.address || null,
+                    status: "pending"
+                }
+            });
+
+            // Create notification
+            await tx.notifications.create({
+                data: {
+                    user_id: user.user_id,
+                    title: "Bank payment details updated.",
+                    message: "You have successfully updated your bank payment details.",
+                    type: "account_activity",
+                    is_read: false
+                }
+            });
+        });
+
+        return res.status(200).json({
+            status: true,
+            message: "Bank payment details updated successfully."
+        });
+
+    } catch (err) {
+        console.log("updatePaymentDetails ERROR:: ", err);
+
+        return res.status(500).json({
+            status: false,
+            message: "Unable to update bank payment details.",
+            errors: err.message
+        });
+    }
+};
+
+
+export const updateIsPrimary = async (req, res) => {
+    const user = req.user;
+
+    try {
+        // ---------------- VALIDATION ----------------
+        const { method, id } = req.body;
+
+        if (!method || !["bank", "upi"].includes(method)) {
+            return res.status(422).json({
+                status: false,
+                message: "Validation failed",
+                errors: { method: ["method must be bank or upi"] },
+            });
+        }
+
+        if (!id || isNaN(id)) {
+            return res.status(422).json({
+                status: false,
+                message: "Validation failed",
+                errors: { id: ["id must be a valid number"] },
+            });
+        }
+
+        // ---------------- TRANSACTION ----------------
+        await prisma.$transaction(async (tx) => {
+            if (method === "bank") {
+                const exists = await tx.payment_details.findFirst({
+                    where: {
+                        user_id: BigInt(user.user_id),
+                        pd_id: Number(id),
+                    },
+                });
+
+                if (!exists) {
+                    throw new Error(`No ${method.charAt(0).toUpperCase() + method.slice(1)} details found with provided id.`);
+                }
+
+                await tx.payment_details.updateMany({
+                    where: { user_id: BigInt(user.user_id) },
+                    data: { is_primary: false }
+                });
+
+                await tx.payment_details.updateMany({
+                    where: {
+                        user_id: BigInt(user.user_id),
+                        pd_id: Number(id)
+                    },
+                    data: { is_primary: true }
+                });
+            }
+
+            else if (method === "upi") {
+                const exists = await tx.upi_details.findFirst({
+                    where: {
+                        user_id: BigInt(user.user_id),
+                        id: Number(id),
+                    },
+                });
+
+                if (!exists) {
+                    throw new Error(`No Upi details found with provided id.`);
+                }
+
+                await tx.upi_details.updateMany({
+                    where: { user_id: user.user_id },
+                    data: { is_primary: false }
+                });
+
+                await tx.upi_details.updateMany({
+                    where: { user_id: user.user_id, id: Number(id) },
+                    data: { is_primary: true }
+                });
+            }
+
+            else {
+                throw new Error(`Invalid payment method : ${method}`);
+            }
+        });
+
+        return res.status(200).json({
+            status: true,
+            message: `The selected ${method.charAt(0).toUpperCase() + method.slice(1)} account has been successfully set as primary.`,
+        });
+
+    } catch (err) {
+        return res.status(500).json({
+            status: false,
+            message: `Unable to set the selected ${req.body.method ? req.body.method.charAt(0).toUpperCase() + req.body.method.slice(1) : ""} account as primary.`,
+            errors: err.message,
+        });
+    }
+};
+
+export const updateUpiDetails = async (req, res) => {
+  const user = req.user; // From auth middleware
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(422).json({ status: false, message: "Validation failed", errors: errors.array() });
+  }
+
+  const { id, upi_name, upi_id, caption, is_primary } = req.body;
+
+  try {
+    // Check if UPI detail exists for this user
+    const upi = await prisma.upi_details.findFirst({
+      where: { id: Number(id), user_id: BigInt(user.user_id) },
+    });
+
+    if (!upi) {
+      return res.status(404).json({ status: false, message: "No UPI details found for this user." });
+    }
+
+    // If is_primary is true, reset previous primary UPI
+    if (is_primary) {
+      await prisma.upi_details.updateMany({
+        where: { user_id: BigInt(user.user_id), is_primary: true },
+        data: { is_primary: false },
+      });
+    }
+
+    // Update UPI details
+    await prisma.upi_details.update({
+      where: { id: Number(id) },
+      data: {
+        upi_name: upi_name.trim(),
+        upi_id: upi_id.trim(),
+        caption: caption || null,
+        is_primary: !!is_primary,
+      },
+    });
+
+    return res.status(200).json({ status: true, message: "UPI details updated successfully." });
+  } catch (error) {
+    console.error("❌ ERROR =>", error);
+    return res.status(500).json({ status: false, message: "Unable to update UPI details.", errors: error.message });
+  }
+};
+
+
+export const deleteMethod = async (req, res) => {
+  try {
+    const user = req.user;
+
+    // Read from query instead of body
+    const method = (req.query.method || "").toLowerCase();
+    const id = Number(req.query.id);
+
+    if (!method || !["bank", "upi"].includes(method)) {
+      return res.status(422).json({ status: false, message: "Invalid method" });
+    }
+    if (!id) {
+      return res.status(422).json({ status: false, message: "Invalid id" });
+    }
+
+    if (method === "bank") {
+      const exists = await prisma.payment_details.findFirst({
+        where: { user_id: BigInt(user.user_id), pd_id: BigInt(id) },
+      });
+      if (!exists) throw new Error("No Bank details found with provided id.");
+
+      await prisma.payment_details.delete({ where: { pd_id: BigInt(id) } });
+    } else if (method === "upi") {
+      const exists = await prisma.upi_details.findFirst({
+        where: { user_id: BigInt(user.user_id), id: BigInt(id) },
+      });
+      if (!exists) throw new Error("No UPI details found with provided id.");
+
+      await prisma.upi_details.delete({ where: { id: BigInt(id) } });
+    }
+
+    return res.status(200).json({
+      status: true,
+      message: `${method.charAt(0).toUpperCase() + method.slice(1)} Payment method deleted successfully.`,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      status: false,
+      message: "Unable to delete payment method.",
+      errors: error.message || error,
+    });
+  }
 };

@@ -21,6 +21,7 @@ const upload = multer();
 // Static files
 app.use("/storage", express.static(path.join(process.cwd(), "storage", "app", "public")));
 
+
 // Middlewares
 app.use(cors());
 app.use(express.json()); // for JSON requests

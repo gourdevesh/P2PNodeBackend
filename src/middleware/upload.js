@@ -7,6 +7,7 @@ import moment from "moment";
 const storageDir = path.join("storage", "app", "public", "images", "doc_file");
 fs.mkdirSync(storageDir, { recursive: true });
 
+
 // ✅ Multer Storage (Laravel-like)
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, storageDir),
