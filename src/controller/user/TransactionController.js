@@ -3,7 +3,7 @@ import prisma from "../../config/prismaClient.js";
 import axios from "axios";
 import { Prisma } from "@prisma/client";
 import dayjs from "dayjs";
-import { cryptoAsset, feeDetails, fullAssetName, truncateDecimal, txnHash } from "../../config/ReusableCode.js";
+import { cryptoAsset, feeDetails, fullAssetName, network, truncateDecimal, txnHash } from "../../config/ReusableCode.js";
 
 export const getTransactionDetails = async (req, res) => {
     const user = req.user; // assume user injected from auth middleware
@@ -662,3 +662,734 @@ export async function updateTransactions(user, web3WalletDetails) {
     return { status: false, message: error.message };
   }
 }
+
+
+export const convertAsset = async (req, res) => {
+  const user = req.user;
+
+  try {
+    // ============================
+    // VALIDATION
+    // ============================
+    const { fromAsset, fromAssetValue, fromAssetTotalValue, toAsset, toAssetValue } = req.body;
+
+    if (!["eth", "bnb", "usdt", "btc"].includes(fromAsset)) {
+      return res.status(422).json({
+        status: false,
+        message: "Invalid fromAsset value.",
+      });
+    }
+
+    if (!["eth", "bnb", "usdt", "btc"].includes(toAsset)) {
+      return res.status(422).json({
+        status: false,
+        message: "Invalid toAsset value.",
+      });
+    }
+
+    if (fromAsset === toAsset) {
+      return res.status(422).json({
+        status: false,
+        message: `Converting ${fromAsset} to same asset is not allowed.`,
+      });
+    }
+
+    if (Number(fromAssetValue) <= 0) {
+      return res.status(422).json({
+        status: false,
+        message: `${fromAsset} value must be greater than zero.`,
+      });
+    }
+
+    if (Number(toAssetValue) <= 0) {
+      return res.status(422).json({
+        status: false,
+        message: `${toAsset} value must be greater than zero.`,
+      });
+    }
+
+    // ============================
+    // Network Resolver
+    // ============================
+    const fullAssetNames = (asset) => {
+      return asset.toUpperCase();
+    };
+
+
+    const fromNetwork = network(fullAssetNames(fromAsset));
+    const toNetwork = network(toAsset);
+
+    // ============================
+    // WALLET FETCH
+    // ============================
+    const fromAssetWallet = await prisma.web3_wallets.findFirst({
+      where: {
+        user_id: BigInt(user.user_id),
+        asset: fromAsset,
+        network: fromNetwork,
+      },
+    });
+
+    const toAssetWallet = await prisma.web3_wallets.findFirst({
+      where: {
+        user_id: BigInt(user.user_id),
+        asset: toAsset,
+        network: toNetwork,
+      },
+    });
+    console.log(fullAssetNames(fromAsset), fromNetwork)
+
+    const adminFromAsset = await prisma.admin_assets.findFirst({
+      where: {
+        asset: fullAssetName(fromAsset),
+        network: fromNetwork,
+      },
+    });
+
+    console.log( "eb", fullAssetName(toAsset) ,toNetwork)
+
+    const adminToAsset = await prisma.admin_assets.findFirst({
+      where: {
+        asset: fullAssetName(toAsset),
+        network: toNetwork,
+      },
+    });
+
+  console.log(fromAssetWallet,toAssetWallet, adminFromAsset , adminToAsset)
+
+    if (!fromAssetWallet || !toAssetWallet || !adminFromAsset || !adminToAsset) {
+      return res.status(400).json({
+        status: false,
+        message: "Wallet details not found for the specified asset.",
+      });
+    }
+
+    if (
+      fromAssetWallet.status !== "active" ||
+      toAssetWallet.status !== "active" ||
+      adminFromAsset.status !== "active" ||
+      adminToAsset.status !== "active"
+    ) {
+      return res.status(400).json({
+        status: false,
+        message: "You cannot make transaction because address is not active.",
+      });
+    }
+
+    if (
+      fromAssetWallet.remaining_amount < Number(fromAssetValue) ||
+      adminFromAsset.available_balance < Number(fromAssetValue)
+    ) {
+      return res.status(400).json({
+        status: false,
+        message: "Insufficient balance in your wallet.",
+      });
+    }
+
+    // ============================
+    // START TRANSACTION
+    // ============================
+    const result = await prisma.$transaction(async (tx) => {
+      const fee = adminFromAsset.conversion_fee || 0;
+      console.log("fee",fee)
+      const feeType = adminFromAsset.conversion_fee_type;
+      console.log("feeType",feeType)
+
+     const transferFee =
+  feeType === "percentage"
+    ? (Number(fromAssetValue) * fee) / 100
+    : fee;
+
+const transferPercentage = feeType === "percentage" ? fee : 0;
+
+const totalFromValue = Number(fromAssetValue) + transferFee;
+
+// Safe comparison
+const backendValue = Number(totalFromValue.toFixed(8));
+const userValue = Number(Number(fromAssetTotalValue).toFixed(8));
+
+console.log("backendValue:", backendValue);
+console.log("userValue:", userValue);
+
+if (backendValue !== userValue) {
+  throw new Error("The total asset value does not match expected value.");
+}
+
+
+      // UPDATE user wallet (fromAsset)
+      const fromRemaining = fromAssetWallet.remaining_amount - totalFromValue;
+
+      await tx.web3_wallets.update({
+        where: { wallet_id: BigInt(fromAssetWallet.wallet_id) },
+        data: {
+          withdrawal_amount: Number(fromAssetWallet.withdrawal_amount) + totalFromValue,
+          remaining_amount: Number(fromRemaining),
+        },
+      });
+
+      // UPDATE admin (fromAsset)
+      await tx.admin_assets.update({
+        where: { admin_asset_id: BigInt(adminFromAsset.admin_asset_id )},
+        data: {
+          total_revenue: Number(adminFromAsset.total_revenue) +  Number(transferFee),
+          total_withdraw: Number(adminFromAsset.total_withdraw) + Number(totalFromValue),
+          available_balance:
+        Number(adminFromAsset.total_deposit) -
+            (Number(adminFromAsset.total_withdraw) + Number(totalFromValue)),
+        },
+      });
+
+      // UPDATE user wallet (toAsset)
+      const toRemaining = Number(toAssetWallet.remaining_amount) + Number(toAssetValue);
+
+      await tx.web3_wallets.update({
+        where: { wallet_id: BigInt(toAssetWallet.wallet_id) },
+        data: {
+          deposit_amount: Number(toAssetWallet.deposit_amount) + Number(toAssetValue),
+          remaining_amount: Number(toRemaining),
+          internal_deposit: Number(toAssetWallet.internal_deposit) + Number(toAssetValue),
+        },
+      });
+
+      // UPDATE admin (toAsset)
+      await tx.
+      admin_assets.update({
+        where: { admin_asset_id: BigInt(adminToAsset.admin_asset_id) },
+        data: {
+          total_deposit: Number(adminToAsset.total_deposit) + Number(toAssetValue),
+          available_balance:
+            Number(adminToAsset.total_deposit) +
+            Number(toAssetValue) -
+            adminToAsset.total_withdraw,
+        },
+      });
+
+      // CREATE TRANSACTIONS
+      const txnHash = `TXN-${Date.now()}-${user.user_id}`;
+
+      await tx.transactions.create({
+        data: {
+          user_id: Number(user.user_id),
+          txn_type: "internal",
+          from_address: fromAssetWallet.wallet_address,
+          to_address: toAssetWallet.wallet_address,
+          txn_hash_id: txnHash,
+          asset: fromAsset,
+          network: fromNetwork,
+          available_amount: fromAssetWallet.remaining_amount,
+          credit_amount: 0,
+          debit_amount: totalFromValue,
+          transfer_percentage: transferPercentage,
+          transfer_fee: transferFee,
+          paid_amount: 0,
+          remaining_amount: fromRemaining,
+          method: "send",
+          status: "success",
+          updated_buy: "Internal",
+          remark: "By conversion of asset.",
+          date_time: String(dayjs().unix()),
+        },
+      });
+
+      await tx.transactions.create({
+        data: {
+          user_id: Number(user.user_id),
+          txn_type: "internal",
+          from_address: fromAssetWallet.wallet_address,
+          to_address: toAssetWallet.wallet_address,
+          txn_hash_id: txnHash,
+          asset: toAsset,
+          network: toNetwork,
+          available_amount: toAssetWallet.remaining_amount,
+          credit_amount: Number(toAssetValue),
+          debit_amount: 0,
+          transfer_percentage: 0,
+          transfer_fee: 0,
+          paid_amount: Number(toAssetValue),
+          remaining_amount: toRemaining,
+          method: "receive",
+          status: "success",
+          updated_buy: "Internal",
+          remark: "By conversion of asset.",
+          date_time: String(dayjs().unix()),
+        },
+      });
+
+      return true;
+    });
+
+    return res.status(200).json({
+      status: true,
+      message: "Asset converted successfully.",
+    });
+  } catch (err) {
+    return res.status(500).json({
+      status: false,
+      message: "Unable to convert asset.",
+      errors: err.message,
+    });
+  }
+};
+
+export const transactionUsingAddress = async (req, res) => {
+  const user = req.user; // from middleware
+
+  try {
+    const {
+      asset,
+      network,
+      toAddress,
+      assetValue,
+      totalAsset
+    } = req.body;
+
+    // ============================
+    // VALIDATION
+    // ============================
+    if (!asset || !["eth", "bnb", "usdt", "btc"].includes(asset)) {
+      return res.status(422).json({
+        status: false,
+        message: "Validation failed.",
+        errors: { asset: "Invalid asset" }
+      });
+    }
+
+    if (!network || !["erc20", "trc20", "bep20", "btc"].includes(network)) {
+      return res.status(422).json({
+        status: false,
+        message: "Validation failed.",
+        errors: { network: "Invalid network" }
+      });
+    }
+
+    if (!toAddress) {
+      return res.status(422).json({
+        status: false,
+        message: "Validation failed.",
+        errors: { toAddress: "toAddress is required" }
+      });
+    }
+
+    const _assetValue = Number(assetValue);
+    const _totalAsset = Number(totalAsset);
+
+    if (_assetValue <= 0 || _totalAsset <= 0) {
+      throw new Error("Asset value can not be zero.");
+    }
+
+    await prisma.$transaction(async (tx) => {
+
+      // ======================================
+      // FETCH ADMIN ASSET DETAILS
+      // ======================================
+      const adminAsset = await tx.admin_assets.findFirst({
+        where: {
+          asset: fullAssetName(asset),
+          network: network
+        }
+      });
+
+      if (!adminAsset) throw new Error("Asset not found.");
+      if (adminAsset.status !== "active") {
+        throw new Error("You can not make transaction because address is not active.");
+      }
+
+      // ======================================
+      // FETCH SENDER WALLET DETAILS
+      // ======================================
+      const senderWallet = await tx.web3_wallets.findFirst({
+        where: {
+          user_id: BigInt(user.user_id),
+          asset: asset,
+          network: network
+        }
+      });
+
+      if (!senderWallet) throw new Error("Sender wallet not found.");
+
+      if (senderWallet.wallet_address === toAddress) {
+        throw new Error("You can not send asset to same wallet address.");
+      }
+
+      if (senderWallet.status !== "active") {
+        throw new Error("You can not make transaction because address is not active.");
+      }
+
+      // ======================================
+      // CHECK BALANCE
+      // ======================================
+      const availableBalance = Number(senderWallet.remaining_amount);
+      const holdAsset = Number(senderWallet.hold_asset);
+
+      if ((availableBalance - holdAsset) < _totalAsset) {
+        throw new Error("You have insufficient asset amount to send.");
+      }
+
+      // ======================================
+      // CALCULATE FEES
+      // ======================================
+      const feeType = adminAsset.withdrawal_fee_type; // percent/fixed
+      const fee = Number(adminAsset.withdrawal_fee);
+      console.log(fee)
+
+      const transferFee =
+        feeType === "percentage" ? (_assetValue * fee) / 100 : fee;
+
+      const transferPercentage = feeType === "percentage" ? fee : 0;
+
+      const internalTotalAsset = _assetValue + transferFee;
+console.log(internalTotalAsset)
+console.log(_totalAsset)
+
+      if (Number(internalTotalAsset.toFixed(18)) !== Number(_totalAsset.toFixed(18))) {
+        throw new Error("Asset value and transfer fee mismatch.");
+      }
+
+      // ======================================
+      // UPDATE SENDER WALLET
+      // ======================================
+      const senderRemaining = availableBalance - _totalAsset;
+
+      // ======================================
+      // AUTO / MANUAL LOGIC
+      // ======================================
+
+      const transactionData = {
+        user_id: BigInt(user.user_id),
+        txn_type: "web3",
+        from_address: adminAsset.wallet_address,
+        to_address: toAddress,
+        txn_hash_id: null,
+        asset: asset,
+        network: network,
+        available_amount: availableBalance,
+        credit_amount: 0,
+        debit_amount: _totalAsset,
+        transfer_percentage: transferPercentage,
+        transfer_fee: transferFee,
+        paid_amount: _assetValue,
+        remaining_amount: senderRemaining,
+        hold_asset: _totalAsset,
+        method: "send",
+        status: "pending",
+        updated_buy: adminAsset.withdrawal_type === "auto" ? "web3 auto" : "web3 manual",
+        remark: adminAsset.withdrawal_type === "auto" ? "Web3 Auto" : "Web3 Manual",
+        date_time: null
+      };
+
+      const transaction = await tx.transactions.create({
+        data: transactionData
+      });
+
+      // UPDATE WALLET
+      await tx.web3_wallets.update({
+        where: { wallet_id: BigInt(senderWallet.wallet_id) },
+        data: {
+          withdrawal_amount: Number(senderWallet.withdrawal_amount) + _totalAsset,
+          remaining_amount: senderRemaining,
+          hold_asset: Number(senderWallet.hold_asset) + _totalAsset
+        }
+      });
+
+      // UPDATE ADMIN ASSETS
+      await tx.admin_assets.update({
+        where: { admin_asset_id: BigInt(adminAsset.admin_asset_id) },
+        data: {
+          total_revenue: Number(adminAsset.total_revenue) + transferFee,
+          total_withdraw: Number(adminAsset.total_withdraw) + _totalAsset,
+          available_balance:
+            Number(adminAsset.total_deposit) -
+            (Number(adminAsset.total_withdraw) + _totalAsset)
+        }
+      });
+
+      return res.status(201).json({
+        status: true,
+        message: "Transaction created successfully.",
+        withdrawal_type: adminAsset.withdrawal_type,
+        data: transaction
+      });
+    });
+
+  } catch (err) {
+    return res.status(500).json({
+      status: false,
+      message: "Unable to complete transaction.",
+      errors: err.message
+    });
+  }
+};
+
+
+
+// const feeDetails = (feeType, fee, assetValue) => {
+//   let transferFee = 0;
+//   let transferPercentage = 0;
+
+//   if (feeType === "percentage") {
+//     transferPercentage = fee;
+//     transferFee = (assetValue * fee) / 100;
+//   } else {
+//     transferFee = fee;
+//   }
+
+//   return { transferFee, transferPercentage };
+// };
+
+export const feeCalculation = async (req, res) => {
+  try {
+    const { asset, network, assetValue } = req.body;
+    const assetConversion = req.body.assetConversion ? true : false;
+
+    // ================
+    // VALIDATION
+    // ================
+    if (!asset || !["eth", "bnb", "usdt", "btc"].includes(asset))
+      return res.status(422).json({
+        status: false,
+        message: "Validation failed",
+        errors: { asset: "Invalid asset" },
+      });
+
+    if (!network || !["erc20", "trc20", "bep20", "btc"].includes(network))
+      return res.status(422).json({
+        status: false,
+        message: "Validation failed",
+        errors: { network: "Invalid network" },
+      });
+
+    if (!assetValue || isNaN(assetValue) || Number(assetValue) < 0.000006)
+      return res.status(422).json({
+        status: false,
+        message: "Validation failed",
+        errors: { assetValue: "Invalid asset value" },
+      });
+
+    // ================================
+    // FETCH ADMIN ASSET DETAILS
+    // ================================
+    const adminAsset = await prisma.admin_assets.findFirst({
+      where: {
+        asset: fullAssetName(asset),
+        network: network,
+      },
+    });
+
+    if (!adminAsset)
+      return res.status(500).json({
+        status: false,
+        message: "Unable to calculate fee.",
+        errors: "Asset not found.",
+      });
+
+    // ================================
+    // CALCULATE FEES
+    // ================================
+    const feeType = assetConversion
+      ? adminAsset.conversion_fee_type
+      : adminAsset.withdrawal_fee_type;
+
+    const fee = assetConversion
+      ? adminAsset.conversion_fee
+      : adminAsset.withdrawal_fee;
+
+    const { transferFee, transferPercentage } = feeDetails(
+      feeType,
+      Number(fee),
+      Number(assetValue)
+    );
+
+    const formatDecimal = (num) =>
+      parseFloat(parseFloat(num).toFixed(18)).toString();
+
+    const totalAsset = Number(assetValue) + Number(transferFee);
+
+    // ================================
+    // RESPONSE
+    // ================================
+    return res.json({
+      status: true,
+      message: "Fee calculation successful.",
+      data: {
+        transferFee: formatDecimal(transferFee),
+        transferPercentage,
+        totalAsset: formatDecimal(totalAsset),
+      },
+    });
+  } catch (err) {
+    return res.status(500).json({
+      status: false,
+      message: "Unable to calculate fee.",
+      errors: err.message,
+    });
+  }
+};
+
+
+
+export const updateTransactionUsingAddress = async (req, res) => {
+  const user = req.user; // middleware से आने वाला user
+
+  try {
+    const { txnId, status, txnHashId } = req.body;
+
+    // ============================
+    // VALIDATION
+    if (!txnId || isNaN(txnId)) {
+      return res.status(422).json({
+        status: false,
+        message: "Validation failed.",
+        errors: { txnId: "txnId is required & must be integer" },
+      });
+    }
+
+    if (!["pending", "success", "failed"].includes(status)) {
+      return res.status(422).json({
+        status: false,
+        message: "Validation failed.",
+        errors: { status: "Invalid status" },
+      });
+    }
+
+    if (status === "success" && !txnHashId) {
+      return res.status(422).json({
+        status: false,
+        message: "Validation failed.",
+        errors: { txnHashId: "txnHashId required when status=success" },
+      });
+    }
+
+    // Start Transaction
+    await prisma.$transaction(async (tx) => {
+      const transaction = await tx.transactions.findFirst({
+        where: {
+          user_id: BigInt(user.user_id),
+          txn_id: Number(txnId),
+        },
+      });
+
+      if (!transaction) throw new Error("Transaction not found.");
+      if (transaction.status === "success")
+        throw new Error("Transaction already completed.");
+      if (transaction.status === "failed")
+        throw new Error("Transaction already failed and reversed.");
+
+      // Update fields
+      await tx.transactions.update({
+        where: { txn_id: BigInt(txnId) },
+        data: {
+          txn_hash_id: txnHashId || null,
+          status: status,
+        },
+      });
+
+      const assetValue = Number(transaction.debit_amount);
+
+      let customSubject = "";
+      let customMessage = "";
+
+      // ==============================================================
+      // ================  FAILED / PENDING : REVERSE LOGIC  ===========
+      // ==============================================================
+      if (status !== "success") {
+        const senderWallet = await tx.web3_wallets.findFirst({
+          where: {
+            user_id: BigInt(user.user_id),
+            network: transaction.network,
+            asset: transaction.asset,
+          },
+        });
+
+        if (!senderWallet) throw new Error("Wallet not found.");
+
+        const mainAdminAsset = await tx.admin_assets.findFirst({
+          where: {
+            asset: fullAssetName(transaction.asset),
+            network: transaction.network,
+          },
+        });
+
+        if (!mainAdminAsset) throw new Error("Asset not found.");
+
+        const transferFee = Number(transaction.transfer_fee);
+
+        const senderRemainingAmount =
+          Number(senderWallet.remaining_amount) + assetValue;
+
+        // update web3 wallet
+        await tx.web3_wallets.update({
+          where: { wallet_id: BigInt(senderWallet.wallet_id) },
+          data: {
+            withdrawal_amount:
+              Number(senderWallet.withdrawal_amount) - assetValue,
+            remaining_amount: senderRemainingAmount,
+            hold_asset: Number(senderWallet.hold_asset) - Number(transaction.hold_asset),
+          },
+        });
+
+        // update admin asset
+        await tx.admin_assets.update({
+          where: { admin_asset_id: BigInt(mainAdminAsset.admin_asset_id) },
+          data: {
+            total_revenue: Number(mainAdminAsset.total_revenue) - transferFee,
+            total_withdraw: Number(mainAdminAsset.total_withdraw) - assetValue,
+            available_balance:
+              Number(mainAdminAsset.total_deposit) -
+              (Number(mainAdminAsset.total_withdraw) - assetValue),
+          },
+        });
+
+        await tx.transactions.update({
+          where: { txn_id: BigInt(txnId) },
+          data: {
+            remark:
+              "Transaction failed. The deducted amount has been credited back to your wallet.",
+          },
+        });
+
+        customSubject = "Transaction Failed";
+        customMessage =
+          "Your recent transaction could not be processed and has failed. The deducted amount has been refunded back to your wallet.";
+      } else {
+        // ==============================================================
+        // ===================== SUCCESS LOGIC ===========================
+        // ==============================================================
+        customSubject = "Asset Transfer Successfully";
+        customMessage = `You have successfully sent ${assetValue} ${fullAssetName(
+          transaction.asset
+        )} to ${transaction.to_address}.`;
+
+        await tx.transactions.update({
+          where: { txn_id: BigInt(txnId) },
+          data: {
+            remark: customSubject,
+          },
+        });
+      }
+
+      // Save Notification
+      await tx.notifications.create({
+        data: {
+          user_id: BigInt(user.user_id),
+          title: customSubject,
+          message: customMessage,
+          operation_type: "transaction using address",
+          operation_id: String(transaction.txn_id),
+          type: "trade",
+          is_read: false,
+        },
+      });
+    });
+
+    return res.json({
+      status: true,
+      message: "Transaction updated successfully.",
+    });
+  } catch (err) {
+    return res.status(500).json({
+      status: false,
+      message: "Unable to complete transaction.",
+      errors: err.message,
+    });
+  }
+};
