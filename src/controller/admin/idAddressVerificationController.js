@@ -43,10 +43,10 @@ export const getAddressVerificationDetails = async (req, res) => {
     const formattedDetails = addressDetails.map((item) => ({
       ...item,
       document_front_image: item.document_front_image
-        ? `${process.env.BASE_URL}/storage/${item.document_front_image}`
+        ? `${process.env.APP_URL}/storage/${item.document_front_image}`
         : null,
       document_back_image: item.document_back_image
-        ? `${process.env.BASE_URL}/storage/${item.document_back_image}`
+        ? `${process.env.APP_URL}/storage/${item.document_back_image}`
         : null,
       duration: dayjs(item.created_at).tz("Asia/Kolkata").fromNow(), // like diffForHumans
     }));
@@ -60,7 +60,7 @@ export const getAddressVerificationDetails = async (req, res) => {
       from: (page - 1) * perPage + 1,
       to: (page - 1) * perPage + formattedDetails.length,
     };
-const safeData = convertBigIntToString(formattedDetails);
+    const safeData = convertBigIntToString(formattedDetails);
     return res.status(200).json({
       status: true,
       message: "Address verification details fetched successfully.",
@@ -128,7 +128,7 @@ export const getIdVerificationDetails = async (req, res) => {
       from: skip + 1,
       to: skip + idDetails.length,
     };
-const safeData = convertBigIntToString(idDetails);
+    const safeData = convertBigIntToString(idDetails);
     return res.status(200).json({
       status: true,
       message: "ID verification details fetched successfully.",
@@ -165,13 +165,22 @@ export const verifyAddress = async (req, res) => {
       });
     }
 
+
     if (!["pending", "verified", "reject"].includes(status)) {
       return res.status(422).json({
         status: false,
         message: "Validation failed.",
         errors: { status: ["The status must be pending, verified, or reject."] },
-      });                                   
+      });
     }
+    if (status === "pending") {
+      return res.status(422).json({
+        status: false,
+        message: "Validation failed.",
+        errors: { status: ["Pending status cannot be updated."] },
+      });
+    }
+
 
     if (status === "reject" && (!remark || remark.trim() === "")) {
       return res.status(422).json({
@@ -261,6 +270,14 @@ export const verifyId = async (req, res) => {
 
     if (!['pending', 'verified', 'reject'].includes(status)) {
       return res.status(422).json({ status: false, message: 'Invalid status value' });
+    }
+
+        if (status === "pending") {
+      return res.status(422).json({
+        status: false,
+        message: "Validation failed.",
+        errors: { status: ["Pending status cannot be updated."] },
+      });
     }
 
     if (status === 'reject' && (!remark || remark.trim() === '')) {

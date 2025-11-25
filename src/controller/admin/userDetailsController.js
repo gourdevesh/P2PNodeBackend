@@ -210,22 +210,20 @@ export const loginHistory = async (req, res) => {
 
 export const userDetails = async (req, res) => {
   try {
-    const admin = req.admin; // middleware must set admin
+    const admin = req.admin;
     const perPage = parseInt(req.query.per_page) || admin?.per_page || 10;
     const page = parseInt(req.query.page) || 1;
     const skip = (page - 1) * perPage;
 
     let whereClause = {};
 
-    // ✅ Filter by user_id
+    // Filter by user_id
     if (req.query.user_id) {
       whereClause.user_id = BigInt(req.query.user_id);
     }
 
-    console.log("Where Clause:", req.query.status);
-
-    // ✅ Status filters
-     const status = req.query.status || null;
+    // Status filter
+    const status = req.query.status || null;
 
     if (status) {
       switch (status) {
@@ -252,26 +250,20 @@ export const userDetails = async (req, res) => {
         case "pending_kyc_users":
           whereClause.addresses = { some: { status: "pending" } };
           break;
-
-        default:
-          // No recognized filter, fetch all
-          break;
       }
     }
 
-    
-
-    // ✅ Search (username or email)
+    // Search filter
     if (req.query.search && req.query.search.trim() !== "") {
       const search = req.query.search.trim();
       whereClause.OR = [
-        { username: { contains: search, mode: "insensitive" } },
-        { email: { contains: search, mode: "insensitive" } },
+        { username: { contains: search, } },
+        { email: { contains: search } },
       ];
     }
 
-    // ✅ Fetch users
-    const [users, total] = await Promise.all([
+    // Fetch users + total users + analytics simultaneously
+    const [users, total, analytics] = await Promise.all([
       prisma.users.findMany({
         where: whereClause,
         include: {
@@ -282,10 +274,13 @@ export const userDetails = async (req, res) => {
         skip,
         take: perPage,
       }),
+
       prisma.users.count({ where: whereClause }),
+
+      getAnalytics(), // ⭐ Laravel style analytics
     ]);
 
-    // ✅ Format user data
+    // Format users
     const formattedUsers = await Promise.all(
       users.map(async (user) => {
         const userData = await formatUserDetails(user, true);
@@ -299,6 +294,7 @@ export const userDetails = async (req, res) => {
 
     const safeData = convertBigIntToString(formattedUsers);
 
+    // Final response
     return res.status(200).json({
       status: true,
       message:
@@ -307,7 +303,7 @@ export const userDetails = async (req, res) => {
           : "Successfully fetched users' details",
       data: safeData,
       pagination: pagination({ total, page, perPage }),
-      analytics: req.analytics || {},
+      analytics: analytics || {}, // ⭐ EXACTLY like Laravel
     });
   } catch (error) {
     console.error("❌ Error fetching users:", error);
@@ -318,7 +314,6 @@ export const userDetails = async (req, res) => {
     });
   }
 };
-
 
 export const updateUserStatus = async (req, res) => {
   try {
@@ -366,8 +361,8 @@ export const updateUserStatus = async (req, res) => {
       }
 
       return tx.users.update({
-         where: { user_id: Number(user_id) },
-        data: { user_status: status,updated_at: new Date() },
+        where: { user_id: Number(user_id) },
+        data: { user_status: status, updated_at: new Date() },
       });
     });
 
@@ -392,4 +387,36 @@ export const updateUserStatus = async (req, res) => {
       errors: error.message,
     });
   }
+};
+
+const getAnalytics = async () => {
+  const [
+    total_users,
+    active_users,
+    banned_users,
+    total_email_unverifiedUsers,
+    total_number_unverifiedUsers,
+    totalUnverifiedKycUsers,
+    totalPendingKyc
+  ] = await Promise.all([
+    prisma.users.count(),
+    prisma.users.count({ where: { user_status: "active" } }),
+    prisma.users.count({ where: { user_status: "block" } }),
+    prisma.users.count({ where: { email_verified_at: null } }),
+    prisma.users.count({ where: { number_verified_at: null } }),
+    prisma.users.count({ where: { id_verified_at: null } }),
+    prisma.users.count({
+      where: { addresses: { some: { status: "pending" } } }
+    }),
+  ]);
+
+  return {
+    total_users,
+    active_users,
+    banned_users,
+    total_email_unverifiedUsers,
+    total_number_unverifiedUsers,
+    totalUnverifiedKycUsers,
+    totalPendingKyc
+  };
 };

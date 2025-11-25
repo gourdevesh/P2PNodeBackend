@@ -9,6 +9,7 @@ dayjs.extend(utc);
 dayjs.extend(timezone);
 
 export async function formatUserDetails(user, withCountryDetails = true) {
+  console.log("user.loggedIn_device_ip",user.loggedIn_device_ip)
   try {
     const emailVerified = !!user.email_verified_at;
     const phoneVerified = !!user.phone_verified_at;

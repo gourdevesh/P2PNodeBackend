@@ -275,7 +275,7 @@ model feedback {
   review           String?                @db.Text
   created_at       DateTime?              @db.Timestamp(0)
   updated_at       DateTime?              @db.Timestamp(0)
-
+  user       users   @relation(fields: [user_id], references: [user_id])
   @@index([user_id], map: "feedback_user_id_foreign")
 }
 
@@ -508,6 +508,7 @@ model trades {
   support_ticket_number String?              @db.VarChar(255)
   created_at            DateTime?            @db.Timestamp(0)
   updated_at            DateTime?            @db.Timestamp(0)
+
 }
 
 model transactions {
@@ -620,6 +621,7 @@ model users {
     crypto_ads       crypto_ads[]
       reportedBy    reports[] @relation("Reporter")
   reportedUsers reports[] @relation("ReportedTo")
+feedback   feedback[] // normal feedback given TO this user
 
 
 }

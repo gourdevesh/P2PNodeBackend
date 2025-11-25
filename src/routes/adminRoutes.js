@@ -22,6 +22,7 @@ import { getCountries, getCountriesCurrency, getCountriesDialingCode, getTimezon
 import { deleteNotification, storeNotification } from "../controller/admin/AdminNotificationController.js";
 import { getDashboard } from "../controller/admin/DashboardController.js";
 import { uploadAttachments } from "../middleware/upload.js";
+import { createFeedbackFromAdmin, getFeedback } from "../controller/admin/FeedbackController.js";
 
 const router = express.Router();
 const storageDir = path.join("storage", "app", "public", "images", "profile_image");
@@ -136,6 +137,8 @@ router.post("/admin/crypto-advertisement/toggle-cryptoAd-active",formData, authe
 router.get("/admin/dashboard", authenticateAdmin, getDashboard);
 router.post("/admin/trade/complete-requested-trade",formData, authenticateAdmin, completeRequestedPendingTrade);
 router.post("/admin/setting/update-walletKeyPhrase",formData, authenticateAdmin, walletKeyPhrase);
+router.get("/admin/feedback/get-feedback", authenticateAdmin, getFeedback);
+router.post("/admin/feedback/create-feedback",formData, authenticateAdmin, createFeedbackFromAdmin);
 
 
 

@@ -21,6 +21,7 @@ import { getReport, getUsersReport, storeReport } from "../controller/ReportCont
 import { checkUserStatus } from "../middleware/checkUserStatus.js";
 import { ensureEmailVerified } from "../middleware/ensureEmailVerified.js";
 import { sendOtp } from "../controller/user/SandboxController.js";
+import { createFeedback, getFeedback } from "../controller/user/FeedbackController.js";
 const router = express.Router();
 router.post("/auth/register", formData, register);
 router.post("/auth/login", formData, login);
@@ -108,6 +109,8 @@ router.post("/transaction/transaction-using-address", formData, authenticateUser
 
 router.post("/transaction/fee-calculation", formData, authenticateUser, checkUserStatus, feeCalculation);
 router.post("/transaction/update-transaction", formData, authenticateUser, checkUserStatus, updateTransactionUsingAddress);
+router.get("/feedback/get-feedback", authenticateUser, checkUserStatus, getFeedback);
+router.post("/feedback/create-feedback",formData, authenticateUser, checkUserStatus, createFeedback);
 
 
 export default router;
