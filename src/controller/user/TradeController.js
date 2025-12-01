@@ -4,13 +4,14 @@ import prisma from "../../config/prismaClient.js";
 import timezone from "dayjs/plugin/timezone.js";
 import path from 'path';
 import fs from 'fs';
-import { trades_trade_step } from "@prisma/client";
+import { Prisma, trades_trade_step } from "@prisma/client";
 import { userDetails } from "./CryptoAdController.js";
 import { cryptoAsset, fullAssetName, getCurrentTimeInKolkata, network, userDetail } from "../../config/ReusableCode.js";
 import moment from "moment";
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
+const dec = (v) => new Prisma.Decimal(v);
 
 
 export const initiateTrade = async (req, res) => {
@@ -99,8 +100,9 @@ export const initiateTrade = async (req, res) => {
     if (tradeAmount > cryptoAd.max_trade_limit) throw new Error("You cannot trade above allowed limit.");
 
     const tradeCount = await prisma.trades.count({
-      where: {         initiated_by: Number(user.user_id)
- },
+      where: {
+        initiated_by: Number(user.user_id)
+      },
     });
     if (cryptoAd.min_trade_requirement && tradeCount < cryptoAd.min_trade_requirement) {
       throw new Error(`The minimum ${cryptoAd.min_trade_requirement} trade is required for this offer.`);
@@ -150,6 +152,7 @@ export const initiateTrade = async (req, res) => {
         buy_amount: tradeAmount,
         buy_value: assetValueFinal,
         status_changed_at: new Date(),
+        created_at: new Date()
       },
     });
 
@@ -159,6 +162,7 @@ export const initiateTrade = async (req, res) => {
       data: { hold_asset: Number(sellerWalletDetails.hold_asset) + assetValueFinal },
     });
 
+
     // Create notifications
     await prisma.notifications.createMany({
       data: [
@@ -167,18 +171,20 @@ export const initiateTrade = async (req, res) => {
           title: `New Sell Trade Initiated: Action Required.`,
           message: `A new sell trade has been initiated for your cryptocurrency ad. Please review the details and confirm the transaction.`,
           operation_type: "sell_trade",
-            operation_id: tradeDetails.trade_id.toString(), // convert BigInt -> String
+          operation_id: tradeData.trade_id.toString(), // convert BigInt -> String
           type: "trade",
           is_read: false,
+          created_at: new Date()
         },
         {
           user_id: buyerUserId,
           title: "Buy trade Initiated.",
           message: `Your buy trade has been successfully initiated. Please make the payment and upload the payment details to receive ${assetValueFinal} ${asset}.`,
           operation_type: "buy_trade",
-            operation_id: tradeDetails.trade_id.toString(), // convert BigInt -> String
+          operation_id: tradeData.trade_id.toString(), // convert BigInt -> String
           type: "trade",
           is_read: false,
+          created_at: new Date()
         },
       ],
     });
@@ -244,7 +250,12 @@ export const getTradeHistory = async (req, res) => {
       skip,
       take: perPage,
     });
-
+    const tradeStepMap = {
+      ONE: 1,
+      TWO: 2,
+      THREE: 3,
+      FOUR: 4,
+    };
     // Format trades
     const formattedTrades = trades.map(trade => ({
       ...trade,
@@ -255,6 +266,8 @@ export const getTradeHistory = async (req, res) => {
       buy_amount: trade.buy_amount ? Number(trade.buy_amount) : null,
       buy_value: trade.buy_value ? Number(trade.buy_value) : null,
       hold_asset: trade.hold_asset ? Number(trade.hold_asset) : null,
+      trade_step: tradeStepMap[trade.trade_step] ?? null,
+
     }));
 
     const totalPages = Math.ceil(totalFilteredTrade / perPage);
@@ -705,6 +718,7 @@ export const cancelTrade = async (req, res) => {
             operation_id: tradeDetails.trade_id.toString(), // convert BigInt -> String
             type: "trade",
             is_read: false,
+            created_at: new Date()
           },
           {
             user_id: BigInt(user.user_id),
@@ -714,6 +728,7 @@ export const cancelTrade = async (req, res) => {
             operation_id: tradeDetails.trade_id.toString(), // convert BigInt -> String
             type: "trade",
             is_read: false,
+            created_at: new Date()
           },
         ],
       });
@@ -954,7 +969,9 @@ export const buyerUpdateTrade = async (req, res) => {
           operation_type: 'sell_trade',
           operation_id: tradeDetails.trade_id.toString(),
           type: 'trade',
-          is_read: false
+          is_read: false,
+          created_at: new Date()
+
         }
       });
 
@@ -991,6 +1008,7 @@ export const buyerUpdateTrade = async (req, res) => {
 
 export const sellerUpdateTrade = async (req, res) => {
   const user = req.user; // Logged in user (seller)
+  const D = (n) => new Prisma.Decimal(n);
 
   try {
     // ===============================
@@ -1153,7 +1171,9 @@ export const sellerUpdateTrade = async (req, res) => {
         if (!buyerWallet) throw new Error("Buyer wallet not found");
 
         // Seller Wallet Update
-        const sellerRemaining = sellerWallet.remaining_amount - tradeDetails.hold_asset;
+        const sellerRemaining = D(sellerWallet.remaining_amount).sub(
+          D(tradeDetails.hold_asset)
+        );
 
         await tx.transactions.create({
           data: {
@@ -1164,23 +1184,32 @@ export const sellerUpdateTrade = async (req, res) => {
             txn_hash_id: genTxnHash(tradeDetails.seller_id),
             asset: sellerWallet.asset,
             network: sellerWallet.network,
-            available_amount: sellerWallet.remaining_amount,
-            debit_amount: tradeDetails.hold_asset,
+            available_amount: dec(sellerWallet.remaining_amount),
+            debit_amount: dec(tradeDetails.hold_asset),
             credit_amount: 0,
             remaining_amount: sellerRemaining,
             method: "send",
             status: "success",
             remark: "By selling the asset",
-date_time: String(Date.now())
+            date_time: String(Date.now()),
+            created_at: new Date()
           }
         });
 
         await tx.web3_wallets.update({
           where: { wallet_id: BigInt(sellerWallet.wallet_id) },
           data: {
-            withdrawal_amount: sellerWallet.withdrawal_amount + tradeDetails.hold_asset,
-            remaining_amount: sellerRemaining,
-            hold_asset: sellerWallet.hold_asset - tradeDetails.hold_asset
+            withdrawal_amount: (
+              Number(sellerWallet.withdrawal_amount) + Number(tradeDetails.hold_asset)
+            ).toString(),
+            remaining_amount: Number(sellerRemaining),
+
+            hold_asset: (
+              Number(sellerWallet.hold_asset) - Number(tradeDetails.hold_asset)
+            ),
+
+            created_at: new Date(),
+            updated_at: new Date()
           }
         });
 
@@ -1199,8 +1228,11 @@ date_time: String(Date.now())
           data: { total_revenue: mainAdminAssetDetails.total_revenue + transferFee }
         });
 
+
         // Buyer Wallet update
-        const buyerRemaining = buyerWallet.remaining_amount + paidAmount;
+        const buyerRemaining = D(buyerWallet.remaining_amount).add(
+          D(paidAmount)
+        );
 
         await tx.transactions.create({
           data: {
@@ -1211,9 +1243,9 @@ date_time: String(Date.now())
             txn_hash_id: genTxnHash(tradeDetails.buyer_id),
             asset: buyerWallet.asset,
             network: buyerWallet.network,
-            credit_amount: tradeDetails.hold_asset,
+            credit_amount: dec(tradeDetails.hold_asset),
             debit_amount: 0,
-            transfer_fee: transferFee,
+            transfer_fee: dec(transferFee),
             transfer_percentage: transferPercentage,
             paid_amount: paidAmount,
             available_amount: buyerWallet.remaining_amount,
@@ -1221,7 +1253,8 @@ date_time: String(Date.now())
             method: "receive",
             status: "success",
             remark: "By buying the asset",
-            date_time: String(Date.now())
+            date_time: String(Date.now()),
+            created_at: new Date()
 
           }
         });
@@ -1229,9 +1262,18 @@ date_time: String(Date.now())
         await tx.web3_wallets.update({
           where: { wallet_id: BigInt(buyerWallet.wallet_id) },
           data: {
-            deposit_amount: buyerWallet.deposit_amount + paidAmount,
-            remaining_amount: buyerRemaining,
-            internal_deposit: buyerWallet.internal_deposit + paidAmount
+            deposit_amount: (
+              Number(buyerWallet.deposit_amount) + Number(paidAmount)
+            ).toString(),
+
+            remaining_amount: Number(buyerRemaining),
+
+            internal_deposit: (
+              Number(buyerWallet.internal_deposit) + Number(paidAmount)
+            ),
+
+            created_at: new Date(),
+            updated_at: new Date()
           }
         });
       }
@@ -1246,8 +1288,9 @@ date_time: String(Date.now())
               ? "Your sell trade has been completed."
               : "You have rejected the trade.",
           operation_type: "sell_trade",
-            operation_id: tradeDetails.trade_id.toString(), // convert BigInt -> String
+          operation_id: tradeDetails.trade_id.toString(), // convert BigInt -> String
           type: "trade",
+          created_at: new Date(),
           is_read: false
         }
       });
@@ -1261,7 +1304,8 @@ date_time: String(Date.now())
               ? "Your buy trade has been completed successfully."
               : "Trade has been rejected by seller.",
           operation_type: "buy_trade",
-            operation_id: tradeDetails.trade_id.toString(), // convert BigInt -> String
+          created_at: new Date(),
+          operation_id: tradeDetails.trade_id.toString(), // convert BigInt -> String
           type: "trade",
           is_read: false
         }
@@ -1377,15 +1421,15 @@ export const authenticatedUserTradeHistory = async (req, res) => {
     const perPage = Number(req.query.per_page) || 10;
     const page = Number(req.query.page) || 1;
 
-    // ============================
-    // BASE QUERY
-    // ============================
-    let filters = {
-        initiated_by: Number(user.user_id)
-
+    // Base filter to get trades where user is either buyer or seller
+    const filters = {
+      OR: [
+        { buyer_id: String(user.user_id) },
+        { seller_id: String(user.user_id) }
+      ]
     };
 
-    // Filters (tradeStatus, tradeType)
+    // Optional filters
     if (req.query.tradeStatus) {
       filters.trade_status = req.query.tradeStatus;
     }
@@ -1394,26 +1438,24 @@ export const authenticatedUserTradeHistory = async (req, res) => {
       filters.trade_type = req.query.tradeType;
     }
 
-    // ============================
-    // COUNT BEFORE FILTER
-    // ============================
+    // Count total trades for this user
     const totalTrade = await prisma.trades.count({
-      where: {         initiated_by: Number(user.user_id)
- }
+      where: {
+        OR: [
+          { buyer_id: String(user.user_id) },
+          { seller_id: String(user.user_id) }
+        ]
+      }
     });
 
-    // ============================
-    // COUNT AFTER FILTER
-    // ============================
+    // Count trades after applying filters
     const totalFilteredTrade = await prisma.trades.count({
       where: filters
     });
 
-    // ============================
-    // PAGINATION
-    // ============================
     const skip = (page - 1) * perPage;
 
+    // Fetch trade histories with pagination
     let tradeHistories = await prisma.trades.findMany({
       where: filters,
       orderBy: { trade_id: "desc" },
@@ -1421,37 +1463,40 @@ export const authenticatedUserTradeHistory = async (req, res) => {
       take: perPage
     });
 
-    // ============================
-    // FORMAT & PARTNER DETAILS
+    // Adding partner details and setting user-specific trade type
     tradeHistories = await Promise.all(
       tradeHistories.map(async (trade) => {
         trade.payment = trade.payment ? JSON.parse(trade.payment) : null;
         trade.review = trade.review ? JSON.parse(trade.review) : null;
 
-        const partnerId =
-          trade.trade_type === "buy" ? trade.seller_id : trade.buyer_id;
+        // Determine trade type based on user's role
+        if (trade.buyer_id === String(user.user_id)) {
+          trade.trade_type = "buy";
+          var partnerId = trade.seller_id;
+        } else if (trade.seller_id === String(user.user_id)) {
+          trade.trade_type = "sell";
+          var partnerId = trade.buyer_id;
+        } else {
+          trade.trade_type = undefined;
+          var partnerId = null;
+        }
 
-        const partnerDetails = await prisma.users.findFirst({
-          where: { user_id: BigInt(partnerId) }
-        });
+        // Fetch partner details if partnerId is valid
+        if (partnerId) {
+          const partnerDetails = await prisma.users.findFirst({
+            where: { user_id: BigInt(partnerId) }
+          });
 
-        trade.partner_details = partnerDetails
-          ? {
-              user_id: BigInt(partnerDetails.user_id),
-              name: partnerDetails.name,
-              email: partnerDetails.email,
-              mobile: partnerDetails.mobile,
-              username: partnerDetails.username
-            }
-          : null;
+          trade.partner_details = partnerDetails || null;
+        } else {
+          trade.partner_details = null;
+        }
 
         return trade;
       })
     );
 
-    // ============================
-    // PAGINATION RESPONSE FORMAT
-    // ============================
+    // Format pagination response
     const pagination = {
       current_page: page,
       per_page: perPage,
@@ -1477,10 +1522,225 @@ export const authenticatedUserTradeHistory = async (req, res) => {
         totalFilteredTrade
       }
     });
+
   } catch (err) {
     return res.status(500).json({
       status: false,
       message: "Unable to fetch trade history.",
+      errors: err.message
+    });
+  }
+};
+
+
+
+export const UserTradeHistory = async (req, res) => {
+  const user = req.user;
+
+  try {
+    const perPage = Number(req.query.per_page) || 10;
+    const page = Number(req.query.page) || 1;
+
+    // Base filter to get trades where user is either buyer or seller
+    const filters = {
+      OR: [
+        { buyer_id: String(user.user_id) },
+        { seller_id: String(user.user_id) },
+
+      ],
+      trade_status: { notIn: ["pending", "processing"] }   // 🔥 Added filter
+
+    };
+
+    // Optional filters
+    if (req.query.tradeStatus) {
+      filters.trade_status = req.query.tradeStatus;
+    }
+
+    if (req.query.tradeType) {
+      filters.trade_type = req.query.tradeType;
+    }
+
+    // Count total trades for this user
+    const totalTrade = await prisma.trades.count({
+      where: {
+        OR: [
+          { buyer_id: String(user.user_id) },
+          { seller_id: String(user.user_id) }
+        ]
+      }
+    });
+
+    // Count trades after applying filters
+    const totalFilteredTrade = await prisma.trades.count({
+      where: filters
+    });
+
+    const skip = (page - 1) * perPage;
+
+    // Fetch trade histories with pagination
+    let tradeHistories = await prisma.trades.findMany({
+      where: filters,
+      orderBy: { trade_id: "desc" },
+      skip,
+      take: perPage
+    });
+
+    // Adding partner details and setting user-specific trade type
+    tradeHistories = await Promise.all(
+      tradeHistories.map(async (trade) => {
+        trade.payment = trade.payment ? JSON.parse(trade.payment) : null;
+        trade.review = trade.review ? JSON.parse(trade.review) : null;
+
+        // Determine trade type based on user's role
+        if (trade.buyer_id === String(user.user_id)) {
+          trade.trade_type = "buy";
+          var partnerId = trade.seller_id;
+        } else if (trade.seller_id === String(user.user_id)) {
+          trade.trade_type = "sell";
+          var partnerId = trade.buyer_id;
+        } else {
+          trade.trade_type = undefined;
+          var partnerId = null;
+        }
+
+        // Fetch partner details if partnerId is valid
+        if (partnerId) {
+          const partnerDetails = await prisma.users.findFirst({
+            where: { user_id: BigInt(partnerId) }
+          });
+
+          trade.partner_details = partnerDetails || null;
+        } else {
+          trade.partner_details = null;
+        }
+
+        return trade;
+      })
+    );
+
+    // Format pagination response
+    const pagination = {
+      current_page: page,
+      per_page: perPage,
+      total: totalFilteredTrade,
+      last_page: Math.ceil(totalFilteredTrade / perPage),
+      next_page_url:
+        page < Math.ceil(totalFilteredTrade / perPage)
+          ? `?page=${page + 1}&per_page=${perPage}`
+          : null,
+      prev_page_url:
+        page > 1 ? `?page=${page - 1}&per_page=${perPage}` : null,
+      from: skip + 1,
+      to: skip + tradeHistories.length
+    };
+
+    return res.status(200).json({
+      status: true,
+      message: "Trade history fetched successfully.",
+      data: tradeHistories,
+      pagination,
+      analytics: {
+        totalTrade,
+        totalFilteredTrade
+      }
+    });
+
+  } catch (err) {
+    return res.status(500).json({
+      status: false,
+      message: "Unable to fetch trade history.",
+      errors: err.message
+    });
+  }
+};
+
+
+
+export const activeUserTradeHistory = async (req, res) => {
+  const user = req.user;
+
+  try {
+    // Base filter for only active trades (expired & cancel removed)
+    const filters = {
+      OR: [
+        { buyer_id: String(user.user_id) },
+        { seller_id: String(user.user_id) }
+      ],
+      trade_status: { notIn: ["expired", "cancel", "success"] }
+    };
+
+    // Optional filters (will still apply on top)
+    if (req.query.tradeStatus) {
+      filters.trade_status = req.query.tradeStatus;
+    }
+
+    if (req.query.tradeType) {
+      filters.trade_type = req.query.tradeType;
+    }
+
+    // Count trades (without filters)
+    const totalTrade = await prisma.trades.count({
+      where: {
+        OR: [
+          { buyer_id: String(user.user_id) },
+          { seller_id: String(user.user_id) }
+        ]
+      }
+    });
+
+    // Count total after applying filters
+    const totalFilteredTrade = await prisma.trades.count({
+      where: filters
+    });
+
+    // Fetch ALL trades (no pagination)
+    let tradeHistories = await prisma.trades.findMany({
+      where: filters,
+      orderBy: { trade_id: "desc" }
+    });
+
+    // Add partner details
+    tradeHistories = await Promise.all(
+      tradeHistories.map(async (trade) => {
+        trade.payment = trade.payment ? JSON.parse(trade.payment) : null;
+        trade.review = trade.review ? JSON.parse(trade.review) : null;
+
+        if (trade.buyer_id === String(user.user_id)) {
+          trade.trade_type = "buy";
+          var partnerId = trade.seller_id;
+        } else if (trade.seller_id === String(user.user_id)) {
+          trade.trade_type = "sell";
+          var partnerId = trade.buyer_id;
+        }
+
+        if (partnerId) {
+          const partner = await prisma.users.findFirst({
+            where: { user_id: BigInt(partnerId) }
+          });
+          trade.partner_details = partner || null;
+        } else {
+          trade.partner_details = null;
+        }
+
+        return trade;
+      })
+    );
+
+    return res.status(200).json({
+      status: true,
+      message: "Active trade history fetched successfully.",
+      data: tradeHistories,
+      analytics: {
+        totalTrade,
+        totalFilteredTrade
+      }
+    });
+
+  } catch (err) {
+    return res.status(500).json({
+      status: false,
+      message: "Unable to fetch active trade history.",
       errors: err.message
     });
   }

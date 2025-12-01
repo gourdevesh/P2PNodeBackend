@@ -36,29 +36,59 @@ dayjs.extend(relativeTime);
 
 export const getAllUsersTickets = async (req, res) => {
     try {
-        const user = req.user; // middleware से आया हुआ logged-in user
+        const user = req.user; // logged-in user
         const perPage = parseInt(req.query.per_page) || 10;
         const page = parseInt(req.query.page) || 1;
 
         // Base query
+        // Base query
         let whereCondition = {};
 
-        // ✅ Filter fields
+        // Simple filters
         const filterFields = ["user_id", "status", "ticket_id", "ticket_number"];
+
         filterFields.forEach((field) => {
             if (req.query[field]) {
                 whereCondition[field] = req.query[field];
             }
         });
 
+        // 🔥 TRADE ID FILTER LOGIC
+        if (req.query.trade_id) {
+            const tradeId = Number(req.query.trade_id);
+
+            // 1️⃣ Trade fetch karo jisme yeh trade_id ho
+            const trade = await prisma.trades.findUnique({
+                where: { trade_id: tradeId },
+                select: { support_ticket_number: true }
+            });
+
+            if (!trade) {
+                return res.status(200).json({
+                    status: true,
+                    message: "No tickets found for this trade ID.",
+                    data: [],
+                    pagination: {
+                        current_page: 1,
+                        per_page: 10,
+                        total: 0,
+                        last_page: 1
+                    },
+                    analytics: {}
+                });
+            }
+
+            // 2️⃣ ticket_number by trade
+            whereCondition.ticket_number = trade.support_ticket_number;
+        }
+
+
         // ✅ Total tickets
         const totalTickets = await prisma.support_tickets.count();
 
         // ✅ Analytics count by status
         const statuses = ["open", "pending", "in_progress", "closed"];
-        const analytics = {
-            total_tickets: totalTickets,
-        };
+        const analytics = { total_tickets: totalTickets };
 
         for (const status of statuses) {
             analytics[`total_${status}_tickets`] = await prisma.support_tickets.count({
@@ -83,18 +113,77 @@ export const getAllUsersTickets = async (req, res) => {
             take: perPage,
         });
 
-        // ✅ Add user_details manually (optional)
-        const formattedTickets = tickets.map((ticket) => ({
-            ...ticket,
-            user_details: ticket.user
-                ? {
-                    id: ticket.user.user_id,
-                    name: ticket.user.name,
-                    email: ticket.user.email,
-                    phone_number: ticket.user.phone_number,
+        // ✅ For each ticket, fetch related trade details
+        const ticketsWithTrades = await Promise.all(
+            tickets.map(async (ticket) => {
+                let trade = null;
+                let sellerDetails = null;
+                let buyerDetails = null;
+
+                if (ticket.ticket_number) {
+                    // 1️⃣ Fetch Trade
+                    trade = await prisma.trades.findFirst({
+                        where: { support_ticket_number: ticket.ticket_number },
+                    });
+
+                    // 2️⃣ Seller
+                    if (trade?.seller_id) {
+                        sellerDetails = await prisma.users.findUnique({
+                            where: { user_id: Number(trade.seller_id) },
+                            select: {
+                                user_id: true,
+                                name: true,
+                                email: true,
+                                phone_number: true,
+                                username: true
+                            }
+                        });
+                    }
+
+                    // 3️⃣ Buyer
+                    if (trade?.buyer_id) {
+                        buyerDetails = await prisma.users.findUnique({
+                            where: { user_id: Number(trade.buyer_id) },
+                            select: {
+                                user_id: true,
+                                name: true,
+                                email: true,
+                                phone_number: true,
+                                username: true
+                            }
+                        });
+                    }
                 }
-                : null,
-        }));
+                // 4️⃣ Reporter & Reported Logic
+
+
+                let reporter = null;
+                let reported = null;
+
+                if (trade) {
+                    const ticketUserId = Number(ticket.user_id);
+                    const buyerId = Number(trade.buyer_id);
+                    const sellerId = Number(trade.seller_id);
+
+                    if (ticketUserId === buyerId) {
+                        reporter = { ...buyerDetails, role: "buyer" };
+                        reported = { ...sellerDetails, role: "seller" };
+                    } else if (ticketUserId === sellerId) {
+                        reporter = { ...sellerDetails, role: "seller" };
+                        reported = { ...buyerDetails, role: "buyer" };
+                    }
+                }
+
+
+                return {
+                    ...ticket,
+                    trade_details: trade || null,
+                    reporter_details: reporter || null,
+                    reported_details: reported || null,
+                };
+            })
+        );
+
 
         // ✅ Pagination info
         const pagination = {
@@ -110,7 +199,8 @@ export const getAllUsersTickets = async (req, res) => {
                     : null,
             prev_page_url: page > 1 ? `?page=${page - 1}&per_page=${perPage}` : null,
         };
-        const safeData = convertBigIntToString(formattedTickets);
+
+        const safeData = convertBigIntToString(ticketsWithTrades);
 
         // ✅ Final Response
         return res.status(200).json({
@@ -121,6 +211,7 @@ export const getAllUsersTickets = async (req, res) => {
             analytics,
         });
     } catch (error) {
+        console.error("GET TICKETS ERROR:", error);
         return res.status(500).json({
             status: false,
             message: "Failed to retrieve support tickets.",
@@ -128,6 +219,7 @@ export const getAllUsersTickets = async (req, res) => {
         });
     }
 };
+
 export const getParticularTicket = async (req, res) => {
     try {
         const { id } = req.params;
@@ -282,7 +374,7 @@ export const replySupportTicket = async (req, res) => {
                 data: {
                     ticket_id: BigInt(ticket_id),
                     sender_type: 'admin',
-                    admin_sender_id: BigInt(admin.admin_id), 
+                    admin_sender_id: BigInt(admin.admin_id),
                     message,
                     attachments: finalUrls.length ? JSON.stringify(finalUrls) : null,
                     created_at: new Date(),

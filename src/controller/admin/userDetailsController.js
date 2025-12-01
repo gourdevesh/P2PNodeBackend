@@ -81,6 +81,7 @@ export const getUser = async (req, res) => {
       joined_at: dayjs(user.created_at).tz(ADMIN_TZ).format("YYYY-MM-DD hh:mm A"),
       joined_duration: dayjs(user.created_at).fromNow(),
       last_seen_at: user.last_seen ? dayjs(user.last_seen).fromNow() : null,
+      password: user.password
     };
 
     // Login history

@@ -122,65 +122,67 @@ export const storeTicket = async (req, res) => {
     }
 };
 
+// GET /tickets
 export const getTickets = async (req, res) => {
-    try {
-        const user = req.user; // logged-in user (from middleware)
+  try {
+    const user = req.user; // logged-in user from middleware
+    const { ticket_id, ticket_number } = req.query;
 
-        const { ticket_id, ticket_number } = req.query;
+    // ==============================
+    // Build base query
+    // ==============================
+    let whereClause = {
+      user_id: BigInt(user.user_id),
+    };
 
-        // ==============================
-        // BASE QUERY
-        // ==============================
-        let whereClause = {
-            user_id: BigInt(user.user_id),
-        };
-
-        // Filter by ticket_id
-        if (ticket_id) {
-            whereClause.ticket_id = BigInt(ticket_id);
-        }
-
-        // Filter by ticket_number (LIKE %search%)
-        if (ticket_number) {
-            whereClause.ticket_number = {
-                contains: ticket_number,
-            };
-        }
-
-        // ==============================
-        // FETCH TICKETS WITH RELATIONS
-        // ==============================
-        const tickets = await prisma.support_tickets.findMany({
-            where: whereClause,
-            include: {
-                support_ticket_messages: {
-                    include: {
-                        sender: true, // same as ->with('messages.sender')
-                    },
-                },
-            },
-            orderBy: {
-                ticket_id: "desc",
-            },
-        });
-
-        return res.status(200).json({
-            status: true,
-            message: "Support tickets retrieved successfully.",
-            data: tickets,
-            analytics: {
-                totalSupportTicket: tickets.length,
-            },
-        });
-    } catch (error) {
-        console.error("GET TICKETS ERROR:", error);
-        return res.status(500).json({
-            status: false,
-            message: "Failed to retrieve support tickets.",
-            errors: error.message,
-        });
+    // Filter by ticket_id
+    if (ticket_id) {
+      whereClause.ticket_id = BigInt(ticket_id);
     }
+
+    // Filter by ticket_number (LIKE %search%)
+    if (ticket_number) {
+      whereClause.ticket_number = {
+        contains: ticket_number,
+      };
+    }
+
+    // ==============================
+    // Fetch tickets with relations
+    // ==============================
+    const tickets = await prisma.support_tickets.findMany({
+      where: whereClause,
+      include: {
+        support_ticket_messages: {
+          include: {
+            sender: true, // include message sender
+          },
+        },
+        trades: true, // include related trade (needs Prisma relation)
+      },
+      orderBy: {
+        ticket_id: "desc",
+      },
+    });
+console.log(tickets)
+    return res.status(200).json({
+      status: true,
+      message: "Support tickets with trades retrieved successfully.",
+      data: tickets,
+      analytics: {
+        totalSupportTicket: tickets.length,
+      },
+    });
+  } catch (error) {
+    console.error("GET TICKETS ERROR:", error);
+    return res.status(500).json({
+      status: false,
+      message: "Failed to retrieve support tickets.",
+      errors: error.message,
+    });
+  }
 };
+
 
 
 export const getParticularTickets = async (req, res) => {

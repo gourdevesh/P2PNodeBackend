@@ -149,6 +149,7 @@ export const getAllNotifications = async (req, res) => {
                     operation_id: n.operation_id,
                     type: n.type,
                     is_read,
+                    created_at: n.created_at,
                     time_duration: dayjs(n.created_at).fromNow(),
                 };
             })

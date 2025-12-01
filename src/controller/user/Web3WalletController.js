@@ -84,6 +84,8 @@ export const createWeb3Wallet = async (req, res) => {
                             asset,
                             wallet_address: checkWallet.wallet_address,
                             wallet_key: checkWallet.wallet_key,
+                            created_at: new Date(),
+                            updated_at: new Date()
                         }
                     });
 
@@ -101,7 +103,7 @@ export const createWeb3Wallet = async (req, res) => {
                     blockchain,
                     network,
                     asset,
-                    created_at:new Date()
+                    created_at: new Date()
                 }
             });
             walletId = walletData.wallet_id;
@@ -292,113 +294,114 @@ export const getWeb3WalletDetails = async (req, res) => {
 };
 
 export const fetchUserByUsernameAndAddress = async (req, res) => {
-  const user = req.user; // assume user is set in auth middleware
-  try {
-    const { username } = req.query;
+    const user = req.user; // assume user is set in auth middleware
+    try {
+        const { username } = req.query;
 
-    if (!username) {
-      return res.status(400).json({
-        status: false,
-        message: 'Username query parameter is required.'
-      });
-    }
-
-    // Fetch users with username starting with the input
-    const cryptoUsers = await prisma.users.findMany({
-      where: {
-        username: {
-          startsWith: username,
+        if (!username) {
+            return res.status(400).json({
+                status: false,
+                message: 'Username query parameter is required.'
+            });
         }
-      },
-      select: {
-        user_id: true,
-        username: true,
-        profile_image: true,
-      },
-      take: 10
-    });
 
-    // Convert relative profile_image to full URL if needed
-    const usersWithFullImage = cryptoUsers.map(u => {
-      let profileImage = u.profile_image;
-      if (profileImage && !/^https?:\/\//i.test(profileImage)) {
-        // Assuming you store images in /storage folder in your public directory
-        profileImage = `${req.protocol}://${req.get('host')}/storage/${profileImage}`;
-      }
-      return { ...u, profile_image: profileImage };
-    });
+        // Fetch users with username starting with the input
+        const cryptoUsers = await prisma.users.findMany({
+            where: {
+                username: {
+                    startsWith: username,
+                }
+            },
+            select: {
+                user_id: true,
+                username: true,
+                profile_image: true,
+            },
+            take: 10
+        });
 
-    return res.status(200).json({
-      status: true,
-      message: 'User details fetched successfully.',
-      data: usersWithFullImage
-    });
+        // Convert relative profile_image to full URL if needed
+        const usersWithFullImage = cryptoUsers.map(u => {
+            let profileImage = u.profile_image;
+            if (profileImage && !/^https?:\/\//i.test(profileImage)) {
+                // Assuming you store images in /storage folder in your public directory
+                profileImage = `${req.protocol}://${req.get('host')}/storage/${profileImage}`;
+            }
+            return { ...u, profile_image: profileImage };
+        });
 
-  } catch (error) {
-    console.error(error);
-    return res.status(500).json({
-      status: false,
-      message: 'Unable to fetch User details.',
-      errors: error.message
-    });
-  }
+        return res.status(200).json({
+            status: true,
+            message: 'User details fetched successfully.',
+            data: usersWithFullImage
+        });
+
+    } catch (error) {
+        console.error(error);
+        return res.status(500).json({
+            status: false,
+            message: 'Unable to fetch User details.',
+            errors: error.message
+        });
+    }
 };
 
 
 export const updateWeb3Wallet = async (req, res) => {
-  const user = req.user; // assume user is set in auth middleware
+    const user = req.user; // assume user is set in auth middleware
 
-  try {
-    const { wallet_address, wallet_key, wallet_id } = req.body;
+    try {
+        const { wallet_address, wallet_key, wallet_id } = req.body;
 
-    // Validation
-    if (!wallet_address || !wallet_key || !wallet_id) {
-      return res.status(422).json({
-        status: false,
-        message: 'Validation failed.',
-        errors: 'wallet_address, wallet_key, and wallet_id are required.'
-      });
+        // Validation
+        if (!wallet_address || !wallet_key || !wallet_id) {
+            return res.status(422).json({
+                status: false,
+                message: 'Validation failed.',
+                errors: 'wallet_address, wallet_key, and wallet_id are required.'
+            });
+        }
+
+        const walletIdBigInt = BigInt(wallet_id);
+
+        // Check if wallet exists for this user
+        const walletData = await prisma.web3_wallets.findFirst({
+            where: {
+                wallet_id: walletIdBigInt,
+                user_id: BigInt(user.user_id)
+            }
+        });
+
+        if (!walletData) {
+            return res.status(404).json({
+                status: false,
+                message: 'Wallet not found for this user.'
+            });
+        }
+
+        // Update wallet with encrypted key
+        const updatedWallet = await prisma.web3_wallets.update({
+            where: { wallet_id: walletIdBigInt },
+            data: {
+                wallet_address,
+                wallet_key: encryptWithKey(wallet_key, user.user_id),
+                created_at: new Date(),
+                updated_at: new Date()
+            }
+        });
+
+        return res.status(201).json({
+            status: true,
+            message: 'Web3 Wallet details updated successfully.',
+            data: updatedWallet
+        });
+
+    } catch (error) {
+        console.error(error);
+        return res.status(500).json({
+            status: false,
+            message: 'Unable to update web3 wallet details.',
+            errors: error.message
+        });
     }
-
-    const walletIdBigInt = BigInt(wallet_id);
-
-    // Check if wallet exists for this user
-    const walletData = await prisma.web3_wallets.findFirst({
-      where: {
-        wallet_id: walletIdBigInt,
-        user_id: BigInt(user.user_id)
-      }
-    });
-
-    if (!walletData) {
-      return res.status(404).json({
-        status: false,
-        message: 'Wallet not found for this user.'
-      });
-    }
-
-    // Update wallet with encrypted key
-    const updatedWallet = await prisma.web3_wallets.update({
-      where: { wallet_id: walletIdBigInt },
-      data: {
-        wallet_address,
-        wallet_key: encryptWithKey(wallet_key, user.user_id),
-        updated_at:new Date()
-      }
-    });
-
-    return res.status(201).json({
-      status: true,
-      message: 'Web3 Wallet details updated successfully.',
-      data: updatedWallet
-    });
-
-  } catch (error) {
-    console.error(error);
-    return res.status(500).json({
-      status: false,
-      message: 'Unable to update web3 wallet details.',
-      errors: error.message
-    });
-  }
 };

@@ -24,47 +24,60 @@ export const getMyCryptoAd = async (req, res) => {
         per_page = Number(per_page);
         page = Number(page);
 
+        // Base filter
         let filters = {
             user_id: BigInt(user.user_id),
         };
 
-        if (txn_type) {
-            filters.transaction_type = txn_type.toLowerCase();
-        }
+        if (txn_type) filters.transaction_type = txn_type.toLowerCase();
+        if (is_active) filters.is_active = is_active === "true";
+        if (cryptocurrency) filters.cryptocurrency = cryptocurrency.toLowerCase();
 
-        if (is_active) {
-            filters.is_active = is_active === "true";
-        }
+        // Count total ads
+        const count = await prisma.crypto_ads.count({ where: filters });
 
-        if (cryptocurrency) {
-            filters.cryptocurrency = cryptocurrency.toLowerCase();
-        }
-
-
-        // COUNT
-        const count = await prisma.crypto_ads.count({
-            where: filters,
-        });
-
-        // Pagination calculation
+        // Pagination
         const skip = (page - 1) * per_page;
 
-        // FETCH RECORDS
+        // Fetch ads
         const cryptoAds = await prisma.crypto_ads.findMany({
             where: filters,
             orderBy: { crypto_ad_id: "desc" },
             skip,
             take: per_page,
         });
-        console.log("cryptoAds", cryptoAds)
 
-        // Add logo to each ad
+        // Add parsed offer_tags + logo
         const updatedAds = cryptoAds.map(ad => ({
             ...ad,
+            offer_tags: (() => {
+                try {
+                    return typeof ad.offer_tags === "string"
+                        ? JSON.parse(ad.offer_tags)
+                        : ad.offer_tags;
+                } catch {
+                    return [];
+                }
+            })(),
             cryptocurrencyLogo: getCryptoLogo(ad.cryptocurrency, req),
         }));
 
-        // Pagination Format
+        // Count User Sell & Buy Ads
+        const totalUserSellAds = await prisma.crypto_ads.count({
+            where: {
+                user_id: BigInt(user.user_id),
+                transaction_type: "sell"
+            }
+        });
+
+        const totalUserBuyAds = await prisma.crypto_ads.count({
+            where: {
+                user_id: BigInt(user.user_id),
+                transaction_type: "buy"
+            }
+        });
+
+        // Pagination structure
         const lastPage = Math.ceil(count / per_page);
 
         const pagination = {
@@ -87,16 +100,22 @@ export const getMyCryptoAd = async (req, res) => {
             links: [],
             path: `${req.protocol}://${req.get("host")}${req.path}`,
         };
-        const safeData = convertBigIntToString(updatedAds)
+
+        const safeData = convertBigIntToString(updatedAds);
 
         return res.status(200).json({
             status: true,
-            message: "Crypto advertisement fetched successfully.",
+            message: "Crypto advertisements fetched successfully.",
             data: safeData,
-            pagination: pagination,
-            analytics: { total_ads: count },
+            pagination,
+            analytics: {
+                total_ads: count,
+                totalUserSellAds,
+                totalUserBuyAds
+            },
             logo: getCryptoLogo(null, req),
         });
+
     } catch (error) {
         console.error("GET MY CRYPTO AD ERROR:", error);
 
@@ -107,6 +126,7 @@ export const getMyCryptoAd = async (req, res) => {
         });
     }
 };
+
 
 
 export const createCryptoAd = async (req, res) => {
@@ -143,7 +163,6 @@ export const createCryptoAd = async (req, res) => {
         required("min_trade_limit");
         required("max_trade_limit");
         required("offer_time_limit");
-        required("visibility");
 
         if (req.body.max_trade_limit <= req.body.min_trade_limit)
             throw "max_trade_limit must be greater than min_trade_limit";
@@ -233,7 +252,9 @@ export const createCryptoAd = async (req, res) => {
                         title: "Crypto Ad created successfully.",
                         message: `You have successfully created your Crypto Advertisement to ${req.body.transaction_type} ${req.body.cryptocurrency}.`,
                         type: "account_activity",
-                        is_read: false
+                        is_read: false,
+                        created_at: new Date()
+
                     }
                 });
 
@@ -324,6 +345,15 @@ export const getCryptoAd = async (req, res) => {
 
         ads = ads.map((ad) => ({
             ...ad,
+            offer_tags: (() => {
+                try {
+                    return typeof ad.offer_tags === "string"
+                        ? JSON.parse(ad.offer_tags)
+                        : ad.offer_tags;
+                } catch {
+                    return [];
+                }
+            })(),
             cryptocurrencyLogo: logo(ad.cryptocurrency),
             user: ad.user ? userDetails(ad.user, false) : null,
         }));
@@ -624,6 +654,8 @@ export const updateCryptoAd = async (req, res) => {
                     message: `You have successfully updated your Crypto Advertisement to ${updatedAd.transaction_type} ${updatedAd.cryptocurrency}.`,
                     type: "account_activity",
                     is_read: false,
+                    created_at: new Date()
+
                 },
             });
         });
@@ -696,7 +728,7 @@ export const toggleFavoriteCryptoOffer = async (req, res) => {
         if (existingFavorite) {
             // Remove from favorites
             await prisma.favorite_offers.delete({
-                where: { fo_id: BigInt(existingFavorite. fo_id) }
+                where: { fo_id: BigInt(existingFavorite.fo_id) }
             });
 
             return res.status(200).json({

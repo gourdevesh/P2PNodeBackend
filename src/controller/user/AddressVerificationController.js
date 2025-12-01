@@ -298,6 +298,7 @@ export const storeAddress = async (req, res) => {
                         "You have successfully added your address details. It will verify in sometime. Please wait.",
                     type: "account_activity",
                     is_read: false,
+                    created_at: new Date()
                 },
             });
         });

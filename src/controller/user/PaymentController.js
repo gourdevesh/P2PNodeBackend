@@ -8,7 +8,7 @@ import sharp from "sharp";
 import fs from "fs";
 import path from "path";
 import moment from "moment";
-import { validationResult ,body} from "express-validator";
+import { validationResult, body } from "express-validator";
 
 dayjs.extend(relativeTime);
 dayjs.extend(utc);
@@ -128,6 +128,8 @@ export const storePaymentDetails = async (req, res) => {
                     message: "You have successfully added your payment details.",
                     type: "account_activity",
                     is_read: false,
+                    created_at: new Date()
+
                 },
             });
 
@@ -314,6 +316,8 @@ export const addUpiDetails = async (req, res) => {
                     message: "You have successfully added your UPI details.",
                     type: "account_activity",
                     is_read: false,
+                    created_at: new Date()
+
                 },
             });
 
@@ -526,7 +530,9 @@ export const updatePaymentDetails = async (req, res) => {
                     title: "Bank payment details updated.",
                     message: "You have successfully updated your bank payment details.",
                     type: "account_activity",
-                    is_read: false
+                    is_read: false,
+                    created_at: new Date()
+
                 }
             });
         });
@@ -642,91 +648,91 @@ export const updateIsPrimary = async (req, res) => {
 };
 
 export const updateUpiDetails = async (req, res) => {
-  const user = req.user; // From auth middleware
-  const errors = validationResult(req);
-  if (!errors.isEmpty()) {
-    return res.status(422).json({ status: false, message: "Validation failed", errors: errors.array() });
-  }
-
-  const { id, upi_name, upi_id, caption, is_primary } = req.body;
-
-  try {
-    // Check if UPI detail exists for this user
-    const upi = await prisma.upi_details.findFirst({
-      where: { id: Number(id), user_id: BigInt(user.user_id) },
-    });
-
-    if (!upi) {
-      return res.status(404).json({ status: false, message: "No UPI details found for this user." });
+    const user = req.user; // From auth middleware
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+        return res.status(422).json({ status: false, message: "Validation failed", errors: errors.array() });
     }
 
-    // If is_primary is true, reset previous primary UPI
-    if (is_primary) {
-      await prisma.upi_details.updateMany({
-        where: { user_id: BigInt(user.user_id), is_primary: true },
-        data: { is_primary: false },
-      });
+    const { id, upi_name, upi_id, caption, is_primary } = req.body;
+
+    try {
+        // Check if UPI detail exists for this user
+        const upi = await prisma.upi_details.findFirst({
+            where: { id: Number(id), user_id: BigInt(user.user_id) },
+        });
+
+        if (!upi) {
+            return res.status(404).json({ status: false, message: "No UPI details found for this user." });
+        }
+
+        // If is_primary is true, reset previous primary UPI
+        if (is_primary) {
+            await prisma.upi_details.updateMany({
+                where: { user_id: BigInt(user.user_id), is_primary: true },
+                data: { is_primary: false },
+            });
+        }
+
+        // Update UPI details
+        await prisma.upi_details.update({
+            where: { id: Number(id) },
+            data: {
+                upi_name: upi_name.trim(),
+                upi_id: upi_id.trim(),
+                caption: caption || null,
+                is_primary: !!is_primary,
+            },
+        });
+
+        return res.status(200).json({ status: true, message: "UPI details updated successfully." });
+    } catch (error) {
+        console.error("❌ ERROR =>", error);
+        return res.status(500).json({ status: false, message: "Unable to update UPI details.", errors: error.message });
     }
-
-    // Update UPI details
-    await prisma.upi_details.update({
-      where: { id: Number(id) },
-      data: {
-        upi_name: upi_name.trim(),
-        upi_id: upi_id.trim(),
-        caption: caption || null,
-        is_primary: !!is_primary,
-      },
-    });
-
-    return res.status(200).json({ status: true, message: "UPI details updated successfully." });
-  } catch (error) {
-    console.error("❌ ERROR =>", error);
-    return res.status(500).json({ status: false, message: "Unable to update UPI details.", errors: error.message });
-  }
 };
 
 
 export const deleteMethod = async (req, res) => {
-  try {
-    const user = req.user;
+    try {
+        const user = req.user;
 
-    // Read from query instead of body
-    const method = (req.query.method || "").toLowerCase();
-    const id = Number(req.query.id);
+        // Read from query instead of body
+        const method = (req.query.method || "").toLowerCase();
+        const id = Number(req.query.id);
 
-    if (!method || !["bank", "upi"].includes(method)) {
-      return res.status(422).json({ status: false, message: "Invalid method" });
+        if (!method || !["bank", "upi"].includes(method)) {
+            return res.status(422).json({ status: false, message: "Invalid method" });
+        }
+        if (!id) {
+            return res.status(422).json({ status: false, message: "Invalid id" });
+        }
+
+        if (method === "bank") {
+            const exists = await prisma.payment_details.findFirst({
+                where: { user_id: BigInt(user.user_id), pd_id: BigInt(id) },
+            });
+            if (!exists) throw new Error("No Bank details found with provided id.");
+
+            await prisma.payment_details.delete({ where: { pd_id: BigInt(id) } });
+        } else if (method === "upi") {
+            const exists = await prisma.upi_details.findFirst({
+                where: { user_id: BigInt(user.user_id), id: BigInt(id) },
+            });
+            if (!exists) throw new Error("No UPI details found with provided id.");
+
+            await prisma.upi_details.delete({ where: { id: BigInt(id) } });
+        }
+
+        return res.status(200).json({
+            status: true,
+            message: `${method.charAt(0).toUpperCase() + method.slice(1)} Payment method deleted successfully.`,
+        });
+    } catch (error) {
+        return res.status(500).json({
+            status: false,
+            message: "Unable to delete payment method.",
+            errors: error.message || error,
+        });
     }
-    if (!id) {
-      return res.status(422).json({ status: false, message: "Invalid id" });
-    }
-
-    if (method === "bank") {
-      const exists = await prisma.payment_details.findFirst({
-        where: { user_id: BigInt(user.user_id), pd_id: BigInt(id) },
-      });
-      if (!exists) throw new Error("No Bank details found with provided id.");
-
-      await prisma.payment_details.delete({ where: { pd_id: BigInt(id) } });
-    } else if (method === "upi") {
-      const exists = await prisma.upi_details.findFirst({
-        where: { user_id: BigInt(user.user_id), id: BigInt(id) },
-      });
-      if (!exists) throw new Error("No UPI details found with provided id.");
-
-      await prisma.upi_details.delete({ where: { id: BigInt(id) } });
-    }
-
-    return res.status(200).json({
-      status: true,
-      message: `${method.charAt(0).toUpperCase() + method.slice(1)} Payment method deleted successfully.`,
-    });
-  } catch (error) {
-    return res.status(500).json({
-      status: false,
-      message: "Unable to delete payment method.",
-      errors: error.message || error,
-    });
-  }
 };

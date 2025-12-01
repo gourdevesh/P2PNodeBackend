@@ -79,10 +79,12 @@ export const registerAdmin = async (req, res) => {
     if (!errors.isEmpty())
       return res.status(422).json({ status: false, message: "Validation failed", errors: errors.array() });
 
-    const { name, email, phone_number, password, role } = req.body;
+    const { name, email, phone_number, password, role, permissions } = req.body;
+
 
     // Assume `req.admin` contains the logged-in admin
     const admin = req.admin;
+    console.log(admin)
     if (admin && admin.role !== "super_admin") {
       return res.status(403).json({
         status: false,
@@ -127,6 +129,7 @@ export const registerAdmin = async (req, res) => {
         email,
         phone_number,
         password: hashedPassword,
+        permissions: Array.isArray(permissions) ? permissions : [],
         role,
       },
     });
@@ -387,7 +390,7 @@ export const loginAdmin = async (req, res) => {
       { expiresIn: "1d" }
     );
 
-  const tokenId =  await prisma.personal_access_tokens.create({
+    const tokenId = await prisma.personal_access_tokens.create({
       data: {
         tokenable_type: "admin",
         tokenable_id: updatedAdmin.admin_id,
@@ -474,6 +477,99 @@ export const logOut = async (req, res) => {
       status: error.message === 'Token has already been logged out' ? 'failed' : 'database error',
       message: 'Error occurred',
       errors: error.message,
+    });
+  }
+};
+
+
+
+export const updateAdmin = async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty())
+      return res.status(422).json({
+        status: false,
+        message: "Validation failed",
+        errors: errors.array(),
+      });
+
+    const { admin_id, name, email, phone_number, password, role, permissions } = req.body;
+
+    if (!admin_id) {
+      return res.status(400).json({ status: false, message: "admin_id is required" });
+    }
+
+    // Logged-in admin info
+    const admin = req.admin;
+    if (admin && admin.role !== "super_admin") {
+      return res.status(403).json({
+        status: false,
+        message: "Unauthorized access. Only Super admin can update admin/sub-admin.",
+      });
+    }
+
+    // Check if admin exists
+    const existingAdmin = await prisma.admins.findUnique({
+      where: { admin_id: BigInt(admin_id) },
+    });
+
+    if (!existingAdmin) {
+      return res.status(404).json({ status: false, message: "Admin not found" });
+    }
+
+    // Check email uniqueness (excluding this admin)
+    if (email && email !== existingAdmin.email) {
+      const emailExists = await prisma.admins.findUnique({ where: { email } });
+      if (emailExists) {
+        return res.status(409).json({
+          status: false,
+          message: "Email already exists. Please use another email.",
+        });
+      }
+    }
+
+    // Check phone uniqueness (if provided, excluding this admin)
+    if (phone_number && phone_number !== existingAdmin.phone_number) {
+      const phoneExists = await prisma.admins.findUnique({ where: { phone_number } });
+      if (phoneExists) {
+        return res.status(409).json({
+          status: false,
+          message: "Phone number already exists. Please use another number.",
+        });
+      }
+    }
+
+    // Hash password if provided
+    let hashedPassword = existingAdmin.password;
+    if (password) {
+      hashedPassword = await bcrypt.hash(password, 10);
+    }
+
+    // Update admin
+    const updatedAdmin = await prisma.admins.update({
+      where: { admin_id: BigInt(admin_id) },
+      data: {
+        name,
+        email,
+        phone_number,
+        password: hashedPassword,
+        role,
+        permissions: Array.isArray(permissions) ? permissions : [],
+      },
+    });
+
+    return res.status(200).json({
+      status: true,
+      message: "Admin updated successfully!",
+      admin: updatedAdmin,
+    });
+
+  } catch (err) {
+    console.error("Admin update failed:", err);
+    return res.status(500).json({
+      status: false,
+      message: "Something went wrong",
+      errors: err.message,
     });
   }
 };

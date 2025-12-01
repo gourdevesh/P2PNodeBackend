@@ -30,7 +30,7 @@ export const userDetail = async (req, res) => {
     }
 
     const userDetails = await getUserDetails(user, true);
-
+    console.log("userDetails12", userDetails)
     res.status(200).json({
       status: true,
       response: userDetails,
@@ -346,6 +346,8 @@ export const changePassword = async (req, res) => {
           message: "You have successfully changed your password.",
           type: "security",
           is_read: false,
+          created_at: new Date()
+
         },
       });
     });
@@ -467,6 +469,8 @@ export const securityQuestion = async (req, res) => {
           message: "You have successfully updated your security questions.",
           type: "security",
           is_read: false,
+          created_at: new Date()
+
         },
       });
     });
@@ -531,7 +535,7 @@ export const getSecurityQuestion = async (req, res) => {
 export const updateProfileImage = async (req, res) => {
   const imageFile = req.file;
   const user = req.user; // Auth middleware must populate
-console.log(user)
+  console.log(user)
   if (!user) {
     return res.status(401).json({ status: "unauthorized", message: "User not found." });
   }
@@ -559,7 +563,7 @@ console.log(user)
     const profileImageUrl = `${req.protocol}://${req.get("host")}/storage/${relativePath}`;
     // Update user in database
     const updatedUser = await prisma.users.update({
-      where: { user_id: user.user_id},
+      where: { user_id: user.user_id },
       data: { profile_image: profileImageUrl },
     });
 

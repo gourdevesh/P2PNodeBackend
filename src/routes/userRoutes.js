@@ -12,7 +12,7 @@ import { uploadImage } from "./adminRoutes.js";
 import { createCryptoAd, getCryptoAd, getFavoriteCryptoOffer, getMyCryptoAd, toggleFavoriteCryptoOffer, updateAllCryptoAdIsActive, updateCryptoAd, updateCryptoAdIsActive } from "../controller/user/CryptoAdController.js";
 import { getAllNotifications, getPerticularNotification, markAsRead } from "../controller/user/NotificationController.js";
 import { getParticularTicket } from "../controller/admin/supportTicketController.js";
-import { authenticatedUserTradeHistory, buyerUpdateTrade, cancelTrade, getTradeFeedback, getTradeHistory, giveFeedback, initiateTrade, sellerUpdateTrade, tradeExpired, updateDispute, updateTradeFeedback } from "../controller/user/TradeController.js";
+import { activeUserTradeHistory, authenticatedUserTradeHistory, buyerUpdateTrade, cancelTrade, getTradeFeedback, getTradeHistory, giveFeedback, initiateTrade, sellerUpdateTrade, tradeExpired, updateDispute, updateTradeFeedback, UserTradeHistory } from "../controller/user/TradeController.js";
 import { closeTicket, getParticularTickets, getTickets, replySupportTicket, storeTicket } from "../controller/user/UserSupportTicketController.js";
 import { convertAsset, feeCalculation, getTransactionDetails, sendAsset, transactionUsingAddress, updateTransactions, updateTransactionUsingAddress } from "../controller/user/TransactionController.js";
 import { createWeb3Wallet, decryptedData, fetchUserByUsernameAndAddress, getWalletKeyPhrase, getWeb3WalletDetails, updateWeb3Wallet } from "../controller/user/Web3WalletController.js";
@@ -22,6 +22,7 @@ import { checkUserStatus } from "../middleware/checkUserStatus.js";
 import { ensureEmailVerified } from "../middleware/ensureEmailVerified.js";
 import { sendOtp } from "../controller/user/SandboxController.js";
 import { createFeedback, getFeedback } from "../controller/user/FeedbackController.js";
+import { getCountries, getCountriesCurrency, getCountriesDialingCode, getTimezone } from "../controller/CountryController.js";
 const router = express.Router();
 router.post("/auth/register", formData, register);
 router.post("/auth/login", formData, login);
@@ -102,6 +103,8 @@ router.post("/verification/send-email-otp", formData, authenticateUser, checkUse
 router.post("/trade/seller-update-trade", formData, authenticateUser, checkUserStatus, sellerUpdateTrade);
 router.post("/trade/update-trade-expired", formData, authenticateUser, checkUserStatus, tradeExpired);
 router.get("/trade/authenticated-user-trade-history", formData, authenticateUser, checkUserStatus, authenticatedUserTradeHistory);
+router.get("/trade/active-user-trade", formData, authenticateUser, checkUserStatus, activeUserTradeHistory);
+router.get("/trade/complete-user-trade", formData, authenticateUser, checkUserStatus, UserTradeHistory);
 
 router.post("/transaction/convert-asset", formData, authenticateUser, checkUserStatus, convertAsset);
 
@@ -110,7 +113,10 @@ router.post("/transaction/transaction-using-address", formData, authenticateUser
 router.post("/transaction/fee-calculation", formData, authenticateUser, checkUserStatus, feeCalculation);
 router.post("/transaction/update-transaction", formData, authenticateUser, checkUserStatus, updateTransactionUsingAddress);
 router.get("/feedback/get-feedback", authenticateUser, checkUserStatus, getFeedback);
-router.post("/feedback/create-feedback",formData, authenticateUser, checkUserStatus, createFeedback);
+router.post("/feedback/create-feedback", formData, authenticateUser, checkUserStatus, createFeedback);
 
-
+router.get("/countries/currency", authenticateUser, getCountriesCurrency);
+router.get("/countries/dialing-code", authenticateUser, getCountriesDialingCode);
+router.get("/countries/name", authenticateUser, getCountries);
+router.get("/countries/timezone", authenticateUser, getTimezone);
 export default router;

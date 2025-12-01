@@ -17,12 +17,14 @@ export const getAddressVerificationDetails = async (req, res) => {
   try {
     const perPage = parseInt(req.query.per_page) || 10;
     const page = parseInt(req.query.page) || 1;
-    const { user_id, status } = req.query;
+    const { user_id, status, residence_country } = req.query;
 
     // Base query
     let whereClause = {};
     if (user_id) whereClause.user_id = Number(user_id);
     if (status) whereClause.status = status;
+    if (residence_country) whereClause.residence_country = String(residence_country);
+
 
     // Analytics
     const totalAddressVerification = await prisma.address_verifications.count();
@@ -240,6 +242,8 @@ export const verifyAddress = async (req, res) => {
           message: message,
           type: "account_activity",
           is_read: false,
+          created_at: new Date()
+
         },
       });
     });
@@ -272,7 +276,7 @@ export const verifyId = async (req, res) => {
       return res.status(422).json({ status: false, message: 'Invalid status value' });
     }
 
-        if (status === "pending") {
+    if (status === "pending") {
       return res.status(422).json({
         status: false,
         message: "Validation failed.",
@@ -331,6 +335,8 @@ export const verifyId = async (req, res) => {
           message,
           type: 'account_activity',
           is_read: false,
+          created_at: new Date()
+
         },
       });
 

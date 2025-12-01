@@ -65,6 +65,7 @@ const getAdminDetails = (admin) => {
     logged_in_device: admin.logged_in_device,
     loggedIn_device_ip: admin.loggedIn_device_ip,
     admin_status: admin.user_status,
+    permissions: admin.permissions,
   };
 };
 

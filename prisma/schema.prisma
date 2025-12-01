@@ -95,10 +95,9 @@ model admins {
   user_status        admins_user_status  @default(active)
   created_at         DateTime?           @db.Timestamp(0)
   updated_at         DateTime?           @db.Timestamp(0)
+permissions        Json?               @default("[]")
   admin_assets       admin_assets[]
   sent_support_ticket_messages support_ticket_messages[] @relation("AdminSentMessages")
-
-
 }
 
 /// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
@@ -469,6 +468,8 @@ model support_tickets {
   user          users                     @relation(fields: [user_id], references: [user_id])
 
   support_ticket_messages support_ticket_messages[]
+  trades           trades[]    @relation("TicketTrades", fields: [], references: [])
+
 
   @@index([user_id], map: "support_tickets_user_id_foreign")
 }
@@ -508,6 +509,8 @@ model trades {
   support_ticket_number String?              @db.VarChar(255)
   created_at            DateTime?            @db.Timestamp(0)
   updated_at            DateTime?            @db.Timestamp(0)
+  ticket support_tickets? @relation("TicketTrades", fields: [support_ticket_number], references: [ticket_number])
+
 
 }
 

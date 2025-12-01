@@ -371,7 +371,9 @@ export const completeRequestedPendingTrade = async (req, res) => {
         status: "success",
         updated_buy: "Internal",
         remark: "By selling the asset",
+        created_at : new Date(),
     date_time: String(Math.floor(Date.now() / 1000))  // ✔ FIXED
+  
       };
 
    const transaction=   await tx.transactions.create({ data: sellerTxnData });
@@ -387,6 +389,8 @@ export const completeRequestedPendingTrade = async (req, res) => {
           hold_asset:new Prisma.Decimal(sellerWallet.hold_asset).minus(
            new Prisma.Decimal(tradeDetails.hold_asset)
           ),
+          created_at: new Date(),
+          updated_at: new Date()
         },
       });
 
@@ -451,6 +455,8 @@ export const completeRequestedPendingTrade = async (req, res) => {
           internal_deposit: new Prisma.Decimal(buyerWallet.internal_deposit).plus(
             paidAmount
           ),
+            created_at: new Date(),
+          updated_at: new Date()
         },
       });
 

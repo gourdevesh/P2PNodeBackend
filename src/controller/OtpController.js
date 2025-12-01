@@ -112,6 +112,7 @@ export const verifyEmailOtp = async (req, res) => {
               message: "Congratulations, You have just confirmed your email.",
               type: "account_activity",
               is_read: false,
+              created_at: new Date()
             },
           });
           break;

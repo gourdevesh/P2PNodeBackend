@@ -116,6 +116,8 @@ export const register = async (req, res) => {
           message: "Congratulations, You have just signed up. Welcome to our platform OnnBit.",
           type: "account_activity",
           is_read: false,
+          created_at: new Date()
+
         },
       });
 
@@ -131,11 +133,11 @@ export const register = async (req, res) => {
       const deviceName = deviceInfo.device?.type || null;
 
       const token = jwt.sign(
-        { userId: user.user_id.toString()},
+        { userId: user.user_id.toString() },
         process.env.JWT_SECRET || "secret",
         { expiresIn: "1d" }
       );
-  const tokenIds = await prisma.personal_access_tokens.create({
+      const tokenIds = await prisma.personal_access_tokens.create({
         data: {
           tokenable_type: "users", // table name ya model
           tokenable_id: BigInt(user.user_id),
@@ -146,10 +148,10 @@ export const register = async (req, res) => {
         },
       });
 
-   const loginDetail=   await tx.user_login_details.create({
+      const loginDetail = await tx.user_login_details.create({
         data: {
           user_id: user.user_id,
-          token_id: tokenIds.toString() ,// ✅ Add this line
+          token_id: tokenIds.toString(),// ✅ Add this line
           ip_address: ipAddress,
           device_details: JSON.stringify({ clientInfo, osInfo, device: deviceName }),
           device: deviceName,
@@ -160,7 +162,7 @@ export const register = async (req, res) => {
           logged_in_at: new Date(),
         },
       });
-console.log(loginDetail)
+      console.log(loginDetail)
       return { user: convertBigIntToString(user), token };
     });
     const safeData = convertBigIntToString(result)
@@ -218,7 +220,7 @@ export const login = async (req, res) => {
     // ------------------------
     const isPasswordValid = await bcrypt.compare(password, user.password);
     if (!isPasswordValid) {
-      return res.status(401).json({ status: false, message: "Invalid credentials" });
+      return res.status(401).json({ status: false, message: "Password Wrong" });
     }
 
     // ------------------------
@@ -445,7 +447,8 @@ export const updateTwoFA = async (req, res) => {
           ? "Two Factor Authentication has been enabled."
           : "Two Factor Authentication has been disabled.",
         type: "security",
-        is_read: false
+        is_read: false,
+        created_at: new Date()
       };
 
       await tx.notifications.create({ data: notificationData });
@@ -943,110 +946,111 @@ export const logoutFromOtherToken = async (req, res) => {
 
 
 export const addNumber = async (req, res) => {
-    let tx;
-    try {
-        const user = req.user; // from auth middleware
+  let tx;
+  try {
+    const user = req.user; // from auth middleware
 
-        // ---------------- Email Verification Check ----------------
-        if (!user.email_verified_at) {
-            return res.status(403).json({
-                status: false,
-                message: "Please verify email before adding phone number.",
-            });
-        }
-
-        // ---------------- Validation ----------------
-        const { dialing_code, phone_number, verified } = req.body;
-
-        const errors = {};
-
-        // dialing_code validation
-        if (!dialing_code) {
-            errors.dialing_code = ["dialing_code is required"];
-        } else if (!/^\+\d{1,4}$/.test(dialing_code)) {
-            errors.dialing_code = ["dialing_code must be like +91, +1, +44"];
-        }
-
-        // phone_number validation
-        if (!phone_number) {
-            errors.phone_number = ["phone_number is required"];
-        } else if (!/^[1-9]\d{4,14}$/.test(phone_number)) {
-            errors.phone_number = [
-                "phone_number must be numeric and between 5 to 15 digits",
-            ];
-        } else {
-            const exists = await prisma.users.findFirst({
-                where: {
-                    phone_number,
-                    NOT: { user_id: user.user_id },
-                },
-            });
-            if (exists) {
-                errors.phone_number = ["phone_number already exists"];
-            }
-        }
-
-        // verified validation
-        const verifiedBool = verified === true || verified === "true" || verified === 1 || verified === "1";
-
-        if (verifiedBool === null || verifiedBool === undefined) {
-            errors.verified = ["verified must be boolean"];
-        }
-
-        if (Object.keys(errors).length > 0) {
-            return res.status(422).json({
-                status: false,
-                message: "validation failed.",
-                errors,
-            });
-        }
-
-        if (!verifiedBool) {
-            return res.status(422).json({
-                status: false,
-                message: "Verify phone number first",
-            });
-        }
-
-        // ---------------- Transaction Start ----------------
-        await prisma.$transaction(async (tx) => {
-            const operation = user.phone_number ? "update" : "add";
-
-            await tx.users.update({
-                where: { user_id: user.user_id },
-                data: {
-                    dialing_code,
-                    phone_number,
-                    number_verified_at: new Date(),
-                    user_level:
-                        user.email_verified_at && user.id_verified_at ? 1 : user.user_level,
-                },
-            });
-
-            // Add notification
-            await tx.notifications.create({
-                data: {
-                    user_id: user.user_id,
-                    title: "Phone number added successfully.",
-                    message:
-                        "Congractulations, You have just added and verified your phone number.",
-                    type: "account_activity",
-                    is_read: false,
-                },
-            });
-
-            res.status(operation === "add" ? 201 : 200).json({
-                status: true,
-                message: `Phone Number ${operation === "add" ? "added" : "updated"} successfully`,
-            });
-        });
-    } catch (err) {
-        console.log("addNumber ERROR:: ", err);
-        return res.status(500).json({
-            status: false,
-            message: "Unable to add/update phone number.",
-            errors: err.message,
-        });
+    // ---------------- Email Verification Check ----------------
+    if (!user.email_verified_at) {
+      return res.status(403).json({
+        status: false,
+        message: "Please verify email before adding phone number.",
+      });
     }
+
+    // ---------------- Validation ----------------
+    const { dialing_code, phone_number, verified } = req.body;
+
+    const errors = {};
+
+    // dialing_code validation
+    if (!dialing_code) {
+      errors.dialing_code = ["dialing_code is required"];
+    } else if (!/^\+\d{1,4}$/.test(dialing_code)) {
+      errors.dialing_code = ["dialing_code must be like +91, +1, +44"];
+    }
+
+    // phone_number validation
+    if (!phone_number) {
+      errors.phone_number = ["phone_number is required"];
+    } else if (!/^[1-9]\d{4,14}$/.test(phone_number)) {
+      errors.phone_number = [
+        "phone_number must be numeric and between 5 to 15 digits",
+      ];
+    } else {
+      const exists = await prisma.users.findFirst({
+        where: {
+          phone_number,
+          NOT: { user_id: user.user_id },
+        },
+      });
+      if (exists) {
+        errors.phone_number = ["phone_number already exists"];
+      }
+    }
+
+    // verified validation
+    const verifiedBool = verified === true || verified === "true" || verified === 1 || verified === "1";
+
+    if (verifiedBool === null || verifiedBool === undefined) {
+      errors.verified = ["verified must be boolean"];
+    }
+
+    if (Object.keys(errors).length > 0) {
+      return res.status(422).json({
+        status: false,
+        message: "validation failed.",
+        errors,
+      });
+    }
+
+    if (!verifiedBool) {
+      return res.status(422).json({
+        status: false,
+        message: "Verify phone number first",
+      });
+    }
+
+    // ---------------- Transaction Start ----------------
+    await prisma.$transaction(async (tx) => {
+      const operation = user.phone_number ? "update" : "add";
+
+      await tx.users.update({
+        where: { user_id: user.user_id },
+        data: {
+          dialing_code,
+          phone_number,
+          number_verified_at: new Date(),
+          user_level:
+            user.email_verified_at && user.id_verified_at ? 1 : user.user_level,
+        },
+      });
+
+      // Add notification
+      await tx.notifications.create({
+        data: {
+          user_id: user.user_id,
+          title: "Phone number added successfully.",
+          message:
+            "Congractulations, You have just added and verified your phone number.",
+          type: "account_activity",
+          is_read: false,
+          created_at: new Date()
+        },
+      });
+
+      res.status(operation === "add" ? 201 : 200).json({
+        status: true,
+        message: `Phone Number ${operation === "add" ? "added" : "updated"} successfully`,
+      });
+    });
+  } catch (err) {
+    console.log("addNumber ERROR:: ", err);
+    return res.status(500).json({
+      status: false,
+      message: "Unable to add/update phone number.",
+      errors: err.message,
+    });
+  }
 };
 2

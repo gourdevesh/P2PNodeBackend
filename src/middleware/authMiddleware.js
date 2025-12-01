@@ -43,7 +43,8 @@ export const authenticateAdmin = async (req, res, next) => {
         role: true,
         profile_image: true,
         user_status: true,
-        created_at: true
+        created_at: true,
+permissions: true 
       }
     });
 
@@ -60,6 +61,7 @@ export const authenticateAdmin = async (req, res, next) => {
       admin_id: decoded.adminId,
       role: admins.role,
       token: token,
+permissions: admins.permissions 
     };
 
     next();

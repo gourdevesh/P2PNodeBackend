@@ -40,7 +40,7 @@ export const getWalletDetails = async (req, res) => {
       }),
       prisma.web3_wallets.count({ where: whereClause }),
     ]);
-
+    console.log("wallets", wallets)
     // Format data
     const requiredData = wallets.map((data) => ({
       wallet_id: data.wallet_id,
@@ -56,8 +56,7 @@ export const getWalletDetails = async (req, res) => {
       web3_deposit: data.web3_deposit,
       internal_deposit: data.internal_deposit,
       status: data.status,
-      created_at: new Date(data.created_at)
-        .toLocaleString("en-IN", { timeZone: "Asia/Kolkata" }),
+      created_at: data.created_at,
       created_at_duration: timeSince(data.created_at),
     }));
 
@@ -175,9 +174,15 @@ export const getTransactionDetails = async (req, res) => {
       updated_buy: data.updated_buy,
       remark: data.remark,
       date_time: data.date_time,
-      created_at: new Date(data.created_at).toLocaleString("en-IN", {
-        timeZone: "Asia/Kolkata",
-      }),
+      created_at: (() => {
+        if (!data.created_at) return "";
+
+        const d = new Date(data.created_at);
+        if (isNaN(d.getTime())) return ""; // Invalid date handle
+
+        return d.toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
+      })(),
+
       created_at_duration: timeSince(data.created_at),
     }));
 
@@ -263,6 +268,8 @@ export const updateAddressTransactionStatus = async (req, res) => {
           data: {
             withdrawal_amount: Number(wallet.withdrawal_amount) - assetValue,
             remaining_amount: Number(wallet.remaining_amount) + assetValue,
+            created_at: new Date(),
+            updated_at: new Date()
           },
         });
 
@@ -288,6 +295,7 @@ export const updateAddressTransactionStatus = async (req, res) => {
           status,
           remark: remark || "Manual Web3 transaction completed successfully.",
           txn_hash_id: "TXN-" + transaction.user_id + "-" + Date.now(),
+          updated_at: new Date()
         },
       });
 
@@ -300,6 +308,8 @@ export const updateAddressTransactionStatus = async (req, res) => {
           operation_id: String(txn_id),
           type: "trade",
           is_read: false,
+          created_at: new Date()
+
         },
       });
     });
