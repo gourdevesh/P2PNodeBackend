@@ -8,6 +8,7 @@ import { Prisma, trades_trade_step } from "@prisma/client";
 import { userDetails } from "./CryptoAdController.js";
 import { cryptoAsset, fullAssetName, getCurrentTimeInKolkata, network, userDetail } from "../../config/ReusableCode.js";
 import moment from "moment";
+import { sendTradeEmail } from "../EmailController.js";
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -113,13 +114,14 @@ export const initiateTrade = async (req, res) => {
 
     const buyerUserId = tradeType === "sell" ? cryptoAd.user_id : user.user_id;
     const sellerUserId = tradeType === "sell" ? user.user_id : cryptoAd.user_id;
-
+    console.log("asset", asset)
     const sellerWalletDetails = await prisma.web3_wallets.findFirst({
       where: {
-        user_id: BigInt(sellerUserId)
-        // asset
+        user_id: BigInt(sellerUserId),
+        asset: cryptoAsset(asset),
       },
     });
+    console.log("sellerWalletDetails", sellerWalletDetails)
     if (!sellerWalletDetails) throw new Error("Wallet Details not found.");
     if (Number(sellerWalletDetails.remaining_amount) - Number(sellerWalletDetails.hold_asset) < assetValueFinal) {
       throw new Error("Insufficient amount in seller's account.");
@@ -164,30 +166,103 @@ export const initiateTrade = async (req, res) => {
 
 
     // Create notifications
-    await prisma.notifications.createMany({
-      data: [
-        {
-          user_id: sellerUserId,
-          title: `New Sell Trade Initiated: Action Required.`,
-          message: `A new sell trade has been initiated for your cryptocurrency ad. Please review the details and confirm the transaction.`,
-          operation_type: "sell_trade",
-          operation_id: tradeData.trade_id.toString(), // convert BigInt -> String
-          type: "trade",
-          is_read: false,
-          created_at: new Date()
-        },
-        {
-          user_id: buyerUserId,
-          title: "Buy trade Initiated.",
-          message: `Your buy trade has been successfully initiated. Please make the payment and upload the payment details to receive ${assetValueFinal} ${asset}.`,
-          operation_type: "buy_trade",
-          operation_id: tradeData.trade_id.toString(), // convert BigInt -> String
-          type: "trade",
-          is_read: false,
-          created_at: new Date()
-        },
-      ],
+    // 1️⃣ Create notifications individually so we get the created records
+    const notificationsToCreate = [
+      {
+        user_id: sellerUserId,
+        title: `New Sell Trade Initiated: Action Required.`,
+        message: `A new sell trade has been initiated for your cryptocurrency ad. Please review the details and confirm the transaction.`,
+        operation_type: "sell_trade",
+        operation_id: tradeData.trade_id.toString(),
+        type: "trade",
+        is_read: false,
+        created_at: new Date()
+      },
+      {
+        user_id: buyerUserId,
+        title: "Buy trade Initiated.",
+        message: `Your buy trade has been successfully initiated. Please make the payment and upload the payment details to receive ${assetValueFinal} ${asset}.`,
+        operation_type: "buy_trade",
+        operation_id: tradeData.trade_id.toString(),
+        type: "trade",
+        is_read: false,
+        created_at: new Date()
+      },
+    ];
+
+    // 2️⃣ Create them one by one (or use `Promise.all` for parallel)
+    const createdNotifications = await Promise.all(
+      notificationsToCreate.map(n => prisma.notifications.create({ data: n }))
+    );
+
+    // 3️⃣ Emit each notification to the respective user
+    createdNotifications.forEach(n => {
+      io.to(n.user_id.toString()).emit("new_notification", n); // make sure event name is exact
     });
+
+
+    const buyer = await prisma.users.findUnique({
+      where: { user_id: BigInt(buyerUserId) },
+      select: { email: true, name: true, username: true }
+    });
+
+    // Fetch seller email
+    const seller = await prisma.users.findUnique({
+      where: { user_id: BigInt(sellerUserId) },
+      select: { email: true, name: true, username: true }
+    });
+    // -------------------------------
+    // 1️⃣ BUYER → TRADE INITIATED
+    // -------------------------------
+
+
+
+    await sendTradeEmail("TRADE_INITIATED", buyer.email, {
+      user_name: buyer.name,
+      trade_id: tradeData.trade_id.toString(),
+      side: "Buyer",
+      amount_crypto: assetValueFinal,
+      asset,
+      price: cryptoAd.price,
+      fiat: userCurrency.toUpperCase(),
+      amount_fiat: tradeAmount,
+      payment_method: payment.payment_type,
+      counterparty_name: seller.username,
+      counterparty_rating: cryptoAd.rating || "N/A"
+    });
+
+
+    // -------------------------------
+    // 2️⃣ SELLER → ESCROW LOCKED
+    // -------------------------------
+    await sendTradeEmail("ESCROW_LOCKED", seller.email, {
+      user_name: seller.name,
+      trade_id: tradeData.trade_id.toString(),
+      amount_crypto: assetValueFinal,
+      asset,
+      side: "seller",
+      counterparty_name: buyer.username,
+      price: cryptoAd.price,
+      fiat: userCurrency.toUpperCase(),
+      payment_method: payment.payment_type
+    });
+
+
+    // -------------------------------
+    // 3️⃣ BUYER → PAYMENT INSTRUCTIONS
+    // -------------------------------
+    await sendTradeEmail("PAYMENT_INSTRUCTIONS", buyer.email, {
+      user_name: buyer.name,
+      trade_id: tradeData.trade_id.toString(),
+      amount_fiat: tradeAmount,
+      fiat: userCurrency.toUpperCase(),
+      amount_crypto: assetValueFinal,
+      asset,
+      counterparty_name: seller.username,
+      payment_method: payment.payment_type,
+      payment_details_masked: "Hidden for security"
+    });
+
 
     return res.status(201).json({
       status: true,
@@ -700,40 +775,81 @@ export const cancelTrade = async (req, res) => {
         },
       });
 
-      const sellerDetails = await tx.users.findUnique({
-        where: { user_id: BigInt(tradeDetails.seller_id) },
-      });
 
-      const cryptoSymbol = tradeDetails.asset.toUpperCase();
-      const cryptoAmount = tradeDetails.hold_asset ? tradeDetails.hold_asset.toString() : "0";
 
-      // Notifications
-      await tx.notifications.createMany({
-        data: [
-          {
-            user_id: BigInt(tradeDetails.seller_id),
-            title: "Trade Cancelled by Buyer",
-            message: `The trade with buyer ${user.username} for ${cryptoAmount} ${cryptoSymbol} has been cancelled by the buyer.`,
-            operation_type: "sell_trade",
-            operation_id: tradeDetails.trade_id.toString(), // convert BigInt -> String
-            type: "trade",
-            is_read: false,
-            created_at: new Date()
-          },
-          {
-            user_id: BigInt(user.user_id),
-            title: "You Cancelled the Trade",
-            message: `You have successfully cancelled the trade with seller ${sellerDetails.username} for ${cryptoAmount} ${cryptoSymbol}.`,
-            operation_type: "buy_trade",
-            operation_id: tradeDetails.trade_id.toString(), // convert BigInt -> String
-            type: "trade",
-            is_read: false,
-            created_at: new Date()
-          },
-        ],
-      });
+
 
     });
+    const buyerDetails = await prisma.users.findUnique({
+      where: { user_id: BigInt(tradeExists.buyer_id) },
+      select: { email: true, name: true, username: true }
+    });
+
+    const sellerDetailsOutside = await prisma.users.findUnique({
+      where: { user_id: BigInt(tradeExists.seller_id) },
+      select: { email: true, name: true, username: true }
+    });
+    const cryptoSymbol = tradeExists.asset.toUpperCase();
+    const cryptoAmount = tradeExists.hold_asset ? tradeExists.hold_asset.toString() : "0";
+
+    // Notifications
+    const sellerNotification = await prisma.notifications.create({
+      data: {
+        user_id: BigInt(tradeExists.seller_id),
+        title: "Trade Cancelled by Buyer",
+        message: `The trade with buyer ${buyerDetails.username} for ${cryptoAmount} ${cryptoSymbol} has been cancelled by the buyer.`,
+        operation_type: "sell_trade",
+        operation_id: tradeExists.trade_id.toString(),
+        type: "trade",
+        is_read: false,
+        created_at: new Date()
+      }
+    });
+
+    const buyerNotification = await prisma.notifications.create({
+      data: {
+        user_id: BigInt(tradeExists.buyer_id),
+        title: "You Cancelled the Trade",
+        message: `You have successfully cancelled the trade with seller ${sellerDetailsOutside.username} for ${cryptoAmount} ${cryptoSymbol}.`,
+        operation_type: "buy_trade",
+        operation_id: tradeExists.trade_id.toString(),
+        type: "trade",
+        is_read: false,
+        created_at: new Date()
+      }
+    });
+
+    // Emit to specific user rooms
+    io.to(tradeExists.seller_id.toString()).emit("new_notification", sellerNotification);
+    io.to(tradeExists.buyer_id.toString()).emit("new_notification", buyerNotification);
+
+    await sendTradeEmail(
+      "TRADE_CANCELLED",
+      buyerDetails.email,
+      {
+        trade_id: tradeExists.trade_id.toString(),
+        user_name: buyerDetails.username,
+        side: "Buyer",
+        asset: tradeExists.asset,
+        amount_crypto: tradeExists.buy_value,
+        amount_fiat: tradeExists.buy_amount,
+        fiat: tradeExists.fiat_currency || "INR"
+      }
+    );
+
+    await sendTradeEmail(
+      "TRADE_CANCELLED",
+      sellerDetailsOutside.email,
+      {
+        trade_id: tradeExists.trade_id.toString(),
+        user_name: sellerDetailsOutside.username,
+        side: "Seller",
+        asset: tradeExists.asset,
+        amount_crypto: tradeExists.buy_value,
+        amount_fiat: tradeExists.buy_amount,
+        fiat: tradeExists.fiat_currency || "INR"
+      }
+    );
 
     return res.status(200).json({ status: true, message: "Trade cancelled successfully." });
   } catch (error) {
@@ -839,172 +955,227 @@ export const updateDispute = async (req, res) => {
 
 
 export const buyerUpdateTrade = async (req, res) => {
-  const user = req.user; // assume auth middleware sets this
+  const user = req.user;
   const { trade_id } = req.body;
-  const paymentFile = req.file; // multer middleware for 'image' field
+  const paymentFile = req.file;
 
-  let paymentDetailsPath = null;
+  let uploadedLocalPath = null; // LOCAL path to delete if fails
+  let paymentDetailsURL = null; // URL stored in DB
 
   try {
-    // Validation
     if (!trade_id) {
       return res.status(422).json({
         status: false,
-        message: 'trade_id is required.'
+        message: "trade_id is required.",
       });
     }
 
     const tradeDetails = await prisma.trades.findFirst({
       where: {
         buyer_id: user.user_id.toString(),
-        trade_id: trade_id.toString()
-      }
+        trade_id: trade_id.toString(),
+      },
     });
 
     if (!tradeDetails) {
       return res.status(422).json({
         status: false,
-        message: 'Trade not found.'
+        message: "Trade not found.",
       });
     }
 
-    if (tradeDetails.trade_status === 'cancel') {
+    if (tradeDetails.trade_status === "cancel") {
       return res.status(422).json({
         status: false,
-        message: 'Trade has been cancelled.'
+        message: "Trade has been cancelled.",
       });
     }
 
     if (tradeDetails.trade_step < 1) {
       return res.status(422).json({
         status: false,
-        message: 'Trade is not initiated successfully.'
+        message: "Trade is not initiated successfully.",
       });
     }
 
     if (tradeDetails.trade_step > 1) {
       return res.status(422).json({
         status: false,
-        message: 'You have already completed this step. Please wait for the seller to respond.'
+        message:
+          "You have already completed this step. Please wait for the seller to respond.",
       });
     }
 
-    // Begin transaction
-    const tx = await prisma.$transaction(async (prismaTx) => {
-
-      const cryptoAd = await prismaTx.crypto_ads.findFirst({
-        where: { user_id: BigInt(tradeDetails.seller_id), crypto_ad_id: BigInt(tradeDetails.crypto_ad_id) }
-      });
-
-      if (!cryptoAd) throw new Error('Crypto Ad not found.');
-
-      // Check time limit
-      if (tradeDetails.time_limit && dayjs(tradeDetails.time_limit).isBefore(dayjs().tz('Asia/Kolkata'))) {
-        // Expire trade
-        await prismaTx.trades.update({
-          where: { trade_id: BigInt(tradeDetails.trade_id) },
-          data: { trade_status: 'expired', trade_remark: 'Trade time limit expired.' }
-        });
-
-        // Adjust seller wallet and cryptoAd if needed
-        const sellerWallet = await prismaTx.web3_wallets.findFirst({
-          where: { user_id: BigInt(tradeDetails.seller_id), asset: tradeDetails.asset }
-        });
-        if (sellerWallet) {
-          await prismaTx.web3_wallets.update({
-            where: { wallet_id: sellerWallet.wallet_id },
-            data: { hold_asset: sellerWallet.hold_asset - tradeDetails.hold_asset }
-          });
-        }
-
-        await prismaTx.crypto_ads.update({
+    // =======================
+    //      TRANSACTION
+    // =======================
+    await prisma.$transaction(
+      async (tx) => {
+        const cryptoAd = await tx.crypto_ads.findFirst({
           where: { crypto_ad_id: BigInt(tradeDetails.crypto_ad_id) },
-          data: { remaining_trade_limit: cryptoAd.remaining_trade_limit + tradeDetails.amount }
         });
 
-        throw new Error('Trade time limit expired.');
-      }
+        if (!cryptoAd) throw new Error("Crypto Ad not found.");
 
-      // Handle payment image upload
-      if (paymentFile) {
-        const ext = path.extname(paymentFile.originalname);
-        const filename = `${user.user_id}_${dayjs().tz('Asia/Kolkata').format('DDMMYYYYHHmmss')}_${Math.random().toString(36).substring(2, 5)}${ext}`;
-        const uploadPath = path.join('storage/app/public/images/payment_details', filename);
+        // ---------- TIME LIMIT EXPIRED CHECK ----------
+        if (
+          tradeDetails.time_limit &&
+          dayjs(tradeDetails.time_limit).isBefore(dayjs().tz("Asia/Kolkata"))
+        ) {
+          // expire trade
+          await tx.trades.update({
+            where: { trade_id: BigInt(tradeDetails.trade_id) },
+            data: {
+              trade_status: "expired",
+              trade_remark: "Trade time limit expired.",
+            },
+          });
 
-        fs.mkdirSync(path.dirname(uploadPath), { recursive: true });
+          const sellerWallet = await tx.web3_wallets.findFirst({
+            where: {
+              user_id: BigInt(tradeDetails.seller_id),
+              asset: tradeDetails.asset,
+            },
+          });
 
-        // Move uploaded file from temp path to final path
-        fs.renameSync(paymentFile.path, uploadPath);
+          if (sellerWallet) {
+            await tx.web3_wallets.update({
+              where: { wallet_id: sellerWallet.wallet_id },
+              data: {
+                hold_asset:
+                  sellerWallet.hold_asset - tradeDetails.hold_asset,
+              },
+            });
+          }
 
-        paymentDetailsPath = `${process.env.APP_URL}/storage/images/payment_details/${filename}`;
-      }
+          await tx.crypto_ads.update({
+            where: { crypto_ad_id: BigInt(tradeDetails.crypto_ad_id) },
+            data: {
+              remaining_trade_limit:
+                cryptoAd.remaining_trade_limit + tradeDetails.amount,
+            },
+          });
 
-      console.log(paymentDetailsPath)
-      // Update trade
-      await prismaTx.trades.update({
-        where: { trade_id: BigInt(tradeDetails.trade_id) },
-        data: {
-          payment_details: paymentDetailsPath,
-          buyer_status: 'processing',
-          trade_status: 'processing',
-          buyer_dispute_time: dayjs().tz('Asia/Kolkata').add(3, 'minute').toDate(),
-          seller_dispute_time: dayjs().tz('Asia/Kolkata').add(1, 'minute').toDate(),
-          trade_step: "TWO",
-          time_limit: null,
-          paid_at: dayjs().tz('Asia/Kolkata').toDate(),
-          status_changed_at: dayjs().tz('Asia/Kolkata').toDate(),
-          updated_at: new Date()
+          throw new Error("Trade time limit expired.");
         }
-      });
 
-      // Notify seller
-      const seller = await prismaTx.users.findUnique({ where: { user_id: BigInt(tradeDetails.seller_id) } });
-      if (!seller) throw new Error('Seller not found.');
+        // ---------- IMAGE UPLOAD ----------
+        if (paymentFile) {
+          const ext = path.extname(paymentFile.originalname);
+          const filename = `${user.user_id}_${Date.now()}_${Math.random()
+            .toString(36)
+            .substring(2)}${ext}`;
 
-      await prismaTx.notifications.create({
-        data: {
-          user_id: BigInt(tradeDetails.seller_id),
-          title: 'Payment Confirmed.',
-          message: 'The buyer has completed their payment. Please review the payment and confirm the transaction.',
-          operation_type: 'sell_trade',
-          operation_id: tradeDetails.trade_id.toString(),
-          type: 'trade',
-          is_read: false,
-          created_at: new Date()
+          const finalPath = path.join(
+            "storage/app/public/images/payment_details",
+            filename
+          );
 
+          fs.mkdirSync(path.dirname(finalPath), { recursive: true });
+
+          fs.renameSync(paymentFile.path, finalPath);
+
+          uploadedLocalPath = finalPath;
+          paymentDetailsURL = `${process.env.APP_URL}/storage/images/payment_details/${filename}`;
         }
-      });
 
-      // Send email to seller
-      // sendEmail({
-      //   user_id: seller.user_id,
-      //   email: seller.email,
-      //   template: 'transaction-pending',
-      //   template_data: { transaction_id: tradeDetails.trade_id.toString(), date: dayjs().toISOString() }
-      // });
+        // ---------- TRADE UPDATE ----------
+        await tx.trades.update({
+          where: { trade_id: BigInt(tradeDetails.trade_id) },
+          data: {
+            payment_details: paymentDetailsURL,
+            buyer_status: "processing",
+            trade_status: "processing",
+            buyer_dispute_time: dayjs().tz("Asia/Kolkata").add(3, "minute").toDate(),
+            seller_dispute_time: dayjs().tz("Asia/Kolkata").add(1, "minute").toDate(),
+            trade_step: "TWO",
+            time_limit: null, // <-- FIXED HERE
+            paid_at: dayjs().tz("Asia/Kolkata").toDate(),
+            status_changed_at: dayjs().tz("Asia/Kolkata").toDate(),
+            updated_at: new Date(),
+          },
+        });
 
-      return true;
-    }); // transaction end
+        const buyer = await prisma.users.findUnique({
+          where: { user_id: BigInt(tradeDetails.buyer_id) },
+          select: { email: true, name: true, username: true }
+        });
 
-    return res.status(200).json({
-      status: true,
-      message: 'Trade updated successfully.'
+        const seller = await prisma.users.findUnique({
+          where: { user_id: BigInt(tradeDetails.seller_id) },
+          select: { email: true, name: true, username: true }
+        });
+
+
+        if (!seller) throw new Error("Seller not found.");
+        if (!buyer) throw new Error("Buyer not found.");
+
+        // ---------- NOTIFICATION ----------
+
+
+
+        // ---------- EMAILS ----------
+
+
+        await sendTradeEmail("BUYER_PAID", seller.email, {
+          trade_id: tradeDetails.trade_id.toString(),
+          user_name: seller.username,
+          counterparty_name: buyer.username,
+          amount_fiat: tradeDetails.buy_amount,
+          fiat: tradeDetails.fiat_currency || "INR",
+          amount_crypto: tradeDetails.buy_value,
+          asset: tradeDetails.asset,
+        });
+      },
+      { timeout: 90000 } // ← Transaction timeout fix
+    );
+    const sellerNotification = await prisma.notifications.create({
+      data: {
+        user_id: BigInt(tradeDetails.seller_id),
+        title: "Payment Confirmed.",
+        message:
+          "The buyer has completed their payment. Please review & confirm.",
+        operation_type: "sell_trade",
+        operation_id: tradeDetails.trade_id.toString(),
+        type: "trade",
+        is_read: false,
+        created_at: new Date(),
+      },
     });
 
+    const buyerNotification = await prisma.notifications.create({
+      data: {
+        user_id: BigInt(tradeDetails.buyer_id),
+        title: "Payment Confirmed.",
+        message: "Your payment has been confirmed successfully.",
+        operation_type: "buyer_trade",
+        operation_id: tradeDetails.trade_id.toString(),
+        type: "trade",
+        is_read: false,
+        created_at: new Date(),
+      },
+    });
+
+    io.to(tradeDetails.buyer_id.toString()).emit("new_notification", buyerNotification);
+
+    io.to(tradeDetails.seller_id.toString()).emit("new_notification", sellerNotification);
+    return res.status(200).json({
+      status: true,
+      message: "Trade updated successfully.",
+    });
   } catch (err) {
-    // Delete uploaded file if failed
-    if (paymentDetailsPath && fs.existsSync(paymentDetailsPath)) {
-      fs.unlinkSync(paymentDetailsPath);
+    // SAFE DELETE LOCAL FILE
+    if (uploadedLocalPath && fs.existsSync(uploadedLocalPath)) {
+      fs.unlinkSync(uploadedLocalPath);
     }
 
     return res.status(500).json({
       status: false,
-      message: 'Unable to update trade.',
-      errors: err.message
+      message: "Unable to update trade.",
+      errors: err.message,
     });
   }
 };
-
 
 export const sellerUpdateTrade = async (req, res) => {
   const user = req.user; // Logged in user (seller)
@@ -1160,9 +1331,11 @@ export const sellerUpdateTrade = async (req, res) => {
 
         if (!sellerWallet) throw new Error("Seller wallet not found");
 
+        console.log("Buyerwallet", tradeDetails)
+
         const buyerWallet = await tx.web3_wallets.findFirst({
           where: {
-            user_id: tradeDetails.buyer_id,
+            user_id: String(tradeDetails.buyer_id),
             asset: cryptoAsset(tradeDetails.asset),
             network: network(tradeDetails.asset)
           }
@@ -1279,7 +1452,7 @@ export const sellerUpdateTrade = async (req, res) => {
       }
 
       // Notifications
-      await tx.notifications.create({
+      const sellerNotification = await tx.notifications.create({
         data: {
           user_id: BigInt(tradeDetails.seller_id),
           title: response === "success" ? "Trade Completed" : "Trade Rejected",
@@ -1295,7 +1468,7 @@ export const sellerUpdateTrade = async (req, res) => {
         }
       });
 
-      await tx.notifications.create({
+      const buyerNotification = await tx.notifications.create({
         data: {
           user_id: BigInt(tradeDetails.buyer_id),
           title: response === "success" ? "Trade Completed" : "Trade Rejected",
@@ -1310,7 +1483,47 @@ export const sellerUpdateTrade = async (req, res) => {
           is_read: false
         }
       });
+      io.to(tradeDetails.seller_id.toString()).emit("new_notification", sellerNotification);
+      io.to(tradeDetails.buyer_id.toString()).emit("new_notification", buyerNotification);
     });
+
+    const buyer = await prisma.users.findUnique({
+      where: { user_id: BigInt(tradeDetails.buyer_id) },
+      select: { email: true, name: true, username: true }
+    });
+
+    const seller = await prisma.users.findUnique({
+      where: { user_id: BigInt(tradeDetails.seller_id) },
+      select: { email: true, name: true, username: true }
+    });
+
+    await sendTradeEmail(
+      "TRADE_COMPLETED",
+      buyer.email,
+      {
+        user_name: buyer.username,
+        trade_id: tradeDetails.trade_id.toString(),
+        amount_fiat: tradeDetails.amount,
+        asset: tradeDetails.asset,
+        counterparty_name: seller.username,
+        side: "buyer",
+
+      }
+    );
+    await sendTradeEmail(
+      "TRADE_COMPLETED",
+      seller.email,
+      {
+        user_name: seller.username,
+        trade_id: tradeDetails.trade_id.toString(),
+        amount_fiat: tradeDetails.amount,
+        asset: tradeDetails.asset,
+        counterparty_name: buyer.username,
+        side: "seller",
+
+      }
+    );
+
 
     return res.json({
       status: true,
@@ -1328,13 +1541,11 @@ export const sellerUpdateTrade = async (req, res) => {
 
 
 export const tradeExpired = async (req, res) => {
-  const user = req.user; // logged-in user
+  const user = req.user;
 
   try {
     const { trade_id } = req.body;
 
-    // ============================
-    // VALIDATION
     if (!trade_id || isNaN(trade_id)) {
       return res.status(422).json({
         status: false,
@@ -1343,8 +1554,6 @@ export const tradeExpired = async (req, res) => {
       });
     }
 
-    // ============================
-    // FETCH TRADE
     const tradeDetails = await prisma.trades.findFirst({
       where: { trade_id: Number(trade_id) }
     });
@@ -1357,30 +1566,8 @@ export const tradeExpired = async (req, res) => {
     }
 
     // ============================
-    // CHECK STATUS + STEP
-    if (tradeDetails.trade_status !== "pending" && tradeDetails.trade_step === "ONE") {
-      return res.status(422).json({
-        status: false,
-        message: "You can not mark this trade to expired." // Because amount was paid
-      });
-    }
-
-    // ============================
-    // AUTHORIZATION CHECK
-    if (
-      String(tradeDetails.seller_id) !== String(user.user_id) &&
-      String(tradeDetails.buyer_id) !== String(user.user_id)
-    ) {
-      return res.status(403).json({
-        status: false,
-        message: "You are not authorized to access this trade."
-      });
-    }
-
-    // ============================
-    // EXPIRY TIME CHECK
-    const now = new Date(); // server time (convert if needed)
-
+    // Check expiry time
+    const now = new Date();
     if (tradeDetails.time_limit && new Date(tradeDetails.time_limit) > now) {
       return res.status(400).json({
         status: false,
@@ -1389,15 +1576,87 @@ export const tradeExpired = async (req, res) => {
     }
 
     // ============================
-    // UPDATE TRADE
+    // Fetch seller + buyer details BEFORE notification
+    const sellerDetails = await prisma.users.findUnique({
+      where: { user_id: BigInt(tradeDetails.seller_id) },
+      select: { username: true, email: true }
+    });
+
+    const buyerDetails = await prisma.users.findUnique({
+      where: { user_id: BigInt(tradeDetails.buyer_id) },
+      select: { username: true, email: true }
+    });
+
+    // ============================
+    // Prepare data
+    const cryptoAmount = tradeDetails.buy_value;
+    const cryptoSymbol = tradeDetails.asset;
+
+    // ============================
+    // Update trade
     await prisma.trades.update({
       where: { trade_id: Number(trade_id) },
       data: {
         trade_status: "expired",
-        trade_remark: "Trade time limit expired.",
+        trade_remark: "Trade expired automatically.",
         time_limit: null,
         status_changed_at: new Date()
       }
+    });
+
+    // ============================
+    // Notifications
+    const sellerNotification = await prisma.notifications.create({
+      data: {
+        user_id: BigInt(tradeDetails.seller_id),
+        title: "Trade Expired",
+        message: `Your sell trade with buyer ${buyerDetails.username} for ${cryptoAmount} ${cryptoSymbol} has expired due to no action.`,
+        operation_type: "sell_trade",
+        operation_id: tradeDetails.trade_id.toString(),
+        type: "trade",
+        is_read: false,
+        created_at: new Date()
+      }
+    });
+
+    const buyerNotification = await prisma.notifications.create({
+      data: {
+        user_id: BigInt(tradeDetails.buyer_id),
+        title: "Trade Expired",
+        message: `Your buy trade with seller ${sellerDetails.username} for ${cryptoAmount} ${cryptoSymbol} has expired because you did not complete payment in time.`,
+        operation_type: "buy_trade",
+        operation_id: tradeDetails.trade_id.toString(),
+        type: "trade",
+        is_read: false,
+        created_at: new Date()
+      }
+    });
+
+    // ============================
+    // Emit using socket
+    io.to(tradeDetails.seller_id.toString()).emit("new_notification", sellerNotification);
+    io.to(tradeDetails.buyer_id.toString()).emit("new_notification", buyerNotification);
+
+    // ============================
+    // Email
+    await sendTradeEmail("TRADE_CANCELLED", buyerDetails.email, {
+      trade_id: tradeDetails.trade_id.toString(),
+      user_name: buyerDetails.username,
+      side: "Buyer",
+      asset: cryptoSymbol,
+      amount_crypto: cryptoAmount,
+      amount_fiat: tradeDetails.buy_amount,
+      fiat: tradeDetails.fiat_currency || "INR"
+    });
+
+    await sendTradeEmail("TRADE_CANCELLED", sellerDetails.email, {
+      trade_id: tradeDetails.trade_id.toString(),
+      user_name: sellerDetails.username,
+      side: "Seller",
+      asset: cryptoSymbol,
+      amount_crypto: cryptoAmount,
+      amount_fiat: tradeDetails.buy_amount,
+      fiat: tradeDetails.fiat_currency || "INR"
     });
 
     return res.status(200).json({
@@ -1770,4 +2029,131 @@ const feeDetails = (feeType, feeValue, amount) => {
     transferFee = (transferPercentage / 100) * Number(amount || 0);
   }
   return { transferFee, transferPercentage };
+};
+
+
+export const sendReleaseOtp = async (req, res) => {
+  try {
+    const user = req.user; // seller
+    const { trade_id } = req.body;
+
+    if (!trade_id) {
+      return res.status(422).json({ status: false, message: "trade_id required" });
+    }
+
+    const trade = await prisma.trades.findFirst({
+      where: {
+        trade_id: Number(trade_id),
+        seller_id: String(user.user_id),
+        trade_step: "TWO",
+      }
+    });
+
+    if (!trade) {
+      return res.status(404).json({
+        status: false,
+        message: "Trade not eligible for release"
+      });
+    }
+
+    // Generate OTP
+    const otp = Math.floor(100000 + Math.random() * 900000);
+
+    // Save OTP
+    await prisma.email_otps.upsert({
+      where: { email: user.email },
+      update: {
+        otp,
+        expires_at: dayjs().add(5, "minute").toISOString()
+      },
+      create: {
+        user_id: user.user_id,
+        email: user.email,
+        otp,
+        expires_at: dayjs().add(5, "minute").toISOString()
+      }
+    });
+
+    // Send Email
+    await sendTradeEmail("OTP_RELEASE", user.email, {
+      trade_id: trade_id,
+      otp_code: otp,
+      user_name: user.username
+
+    });
+
+    return res.json({
+      status: true,
+      message: "OTP sent to your email"
+    });
+
+  } catch (err) {
+    return res.status(500).json({ status: false, message: err.message });
+  }
+};
+export const verifyReleaseOtp = async (req, res) => {
+  const user = req.user;
+  let { otp } = req.body;
+
+  try {
+    // Validate
+    if (!otp) {
+      return res.status(422).json({
+        status: false,
+        message: "Validation failed",
+        errors: { otp: "OTP is required" },
+      });
+    }
+
+    otp = parseInt(otp);
+
+    const result = await prisma.$transaction(async (tx) => {
+
+      // Find OTP record
+      const otpRecord = await tx.email_otps.findFirst({
+        where: {
+          user_id: BigInt(user.user_id),
+          otp: parseInt(otp),
+        },
+      });
+
+      if (!otpRecord) {
+        throw new Error("Invalid OTP");
+      }
+
+      // Check expiry
+      if (new Date(otpRecord.expires_at) < new Date()) {
+        throw new Error("OTP has expired");
+      }
+
+      // Delete after success
+      await tx.email_otps.delete({
+        where: { otp_id: otpRecord.otp_id },
+      });
+
+      return true;
+    });
+
+    if (result) {
+      return res.status(200).json({
+        status: true,
+        message: "OTP verified successfully!",
+      });
+    }
+  } catch (error) {
+    console.error("verifyReleaseOtp error:", error);
+
+    if (["Invalid OTP", "OTP has expired"].includes(error.message)) {
+      return res.status(400).json({
+        status: false,
+        message: error.message,
+      });
+    }
+
+    return res.status(500).json({
+      status: false,
+      message: "Unable to verify release OTP.",
+      errors: error.message,
+    });
+  }
 };

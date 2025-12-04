@@ -246,7 +246,7 @@ export const createCryptoAd = async (req, res) => {
                 });
 
 
-                await tx.notifications.create({
+           const notification=   await tx.notifications.create({
                     data: {
                         user_id: BigInt(user.user_id),
                         title: "Crypto Ad created successfully.",
@@ -257,6 +257,8 @@ export const createCryptoAd = async (req, res) => {
 
                     }
                 });
+        io.to(notification.user_id.toString()).emit("new_notification", notification);
+
 
                 // 🚨 FIX: Return nothing (undefined)
                 return;
@@ -647,7 +649,7 @@ export const updateCryptoAd = async (req, res) => {
             });
 
             // Create notification
-            await tx.notifications.create({
+        const notification  = await tx.notifications.create({
                 data: {
                     user_id: user.user_id,
                     title: "Crypto Ad updated successfully.",
@@ -658,6 +660,8 @@ export const updateCryptoAd = async (req, res) => {
 
                 },
             });
+           io.to(notification.user_id.toString()).emit("new_notification", notification);
+
         });
 
         // ---------------------------

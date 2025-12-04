@@ -97,7 +97,6 @@ export const authenticateUser = async (req, res, next) => {
         token: token, // JWT from request
       },
     });
-    console.log(currentToken)
 
     if (!currentToken) {
       return res.status(401).json({ status: false, message: "User is not authenticated" });
@@ -107,7 +106,6 @@ export const authenticateUser = async (req, res, next) => {
       where: { user_id: BigInt(decoded.userId), token_id: currentToken.id.toString(), login_status: "login" },
     });
 
-    console.log("loginDetail", loginDetail)
 
     if (!loginDetail) {
       return res.status(401).json({ status: false, message: "User is not authenticated" });

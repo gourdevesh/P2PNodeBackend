@@ -1,23 +1,27 @@
 import { generateUniqueTicketNumber } from "../../config/generateTicketNumber.js";
 import prisma from "../../config/prismaClient.js";
 import fs from "fs";
+import { sendTradeEmail } from "../EmailController.js";
 
 export const storeTicket = async (req, res) => {
-    const user = req.user; // from auth middleware
-    const { subject, message, priority } = req.body;
+    const user = req.user; // current user (buyer or seller)
+    const { subject, message, priority, trade_id } = req.body;
     const attachments = req.files || [];
 
     try {
-        // ==============================
-        // VALIDATION — SAME AS LARAVEL
-        // ==============================
+        // =======================
+        // VALIDATION
+        // =======================
         const errors = {};
 
         if (!subject) errors.subject = ["Subject is required."];
         if (!message) errors.message = ["Message is required."];
+        if (!trade_id) errors.trade_id = ["trade_id is required."];
+
         if (priority && !["low", "medium", "high"].includes(priority)) {
-            errors.priority = ["Invalid priority (low, medium, high only)."];
+            errors.priority = ["Invalid priority."];
         }
+
         if (attachments.length > 5) {
             errors.attachments = ["You can upload max 5 attachments."];
         }
@@ -30,45 +34,49 @@ export const storeTicket = async (req, res) => {
             });
         }
 
-        // ==============================
-        // TOTAL SIZE LIMIT (100 MB)
-        // ==============================
-        let totalSize = 0;
-        attachments.forEach((file) => (totalSize += file.size));
+        // =======================
+        // GET TRADE DETAILS
+        // =======================
+        const trade = await prisma.trades.findUnique({
+            where: { trade_id: BigInt(trade_id) }
+        });
 
-        if (totalSize > 100 * 1024 * 1024) {
-            return res.status(422).json({
+        if (!trade) {
+            return res.status(404).json({
                 status: false,
-                message: "Validation failed",
-                errors: { attachments: ["Total attachment size cannot exceed 100MB."] },
+                message: "Trade not found"
             });
         }
 
-        // ==============================
+        // =======================
+        // FETCH BUYER & SELLER FROM USERS TABLE
+        // =======================
+        const buyer = await prisma.users.findUnique({
+            where: { user_id: trade.buyer_id }
+        });
+
+        const seller = await prisma.users.findUnique({
+            where: { user_id: trade.seller_id }
+        });
+
+        // =======================
         // PROCESS ATTACHMENTS
-        // ==============================
-        const uploadedPaths = attachments.map((file) => file.path);
+        // =======================
         const BASE_URL = process.env.APP_URL;
 
-        const finalUrls = attachments.map(file => {
-
+        const finalUrls = attachments.map((file) => {
             let clean = file.path
                 .replace(/\\/g, "/")
                 .replace("storage/app/public/", "storage/");
             return `${BASE_URL}/${clean}`;
         });
 
-
-        // ==============================
-        // GENERATE UNIQUE TICKET NUMBER
-        // ==============================
+        // =======================
+        // CREATE TICKET
+        // =======================
         const ticketNumber = await generateUniqueTicketNumber();
 
-        // ==============================
-        // TRANSACTION START
-        // ==============================
         const result = await prisma.$transaction(async (tx) => {
-            // CREATE TICKET
             const ticket = await tx.support_tickets.create({
                 data: {
                     ticket_number: ticketNumber,
@@ -81,46 +89,104 @@ export const storeTicket = async (req, res) => {
                 },
             });
 
-            // ADD FIRST MESSAGE
+            // first message
             await tx.support_ticket_messages.create({
                 data: {
                     ticket_id: ticket.ticket_id,
                     sender_type: "user",
                     sender_id: BigInt(user.user_id),
                     message,
-                    attachments: JSON.stringify(finalUrls), // save as string
+                    attachments: JSON.stringify(finalUrls),
                     created_at: new Date(),
-                    updated_at: new Date()
+                    updated_at: new Date(),
                 },
             });
 
             return ticket;
         });
 
-        // ==============================
-        // SEND NOTIFICATION (Pseudo)
-        // ==============================
-        // await sendNotification(user.user_id, ...)
+    // -------- SELLER NOTIFICATION --------
+const sellerNotification = await prisma.notifications.create({
+  data: {
+    user_id: seller.user_id,
+    title: `Dispute Raised – Action Required`,
+    message: `The buyer has opened a dispute for this trade. Please review the payment and provide necessary evidence.`,
+    operation_type: "sell_trade",
+    operation_id: trade_id.toString(),
+    type: "trade",
+    is_read: false,
+    created_at: new Date()
+  },
+});
 
-        // ==============================
-        // SEND EMAIL (Pseudo)
-        // ==============================
-        // await sendEmail(user.email, ...)
+// Emit to seller
+io.to(seller.user_id.toString()).emit("new_notification", sellerNotification);
+
+
+// -------- BUYER NOTIFICATION --------
+const buyerNotification = await prisma.notifications.create({
+  data: {
+    user_id: buyer.user_id,
+    title: "Dispute Submitted Successfully",
+    message: `Your dispute has been opened. Please upload valid proof and cooperate with the support team.`,
+    operation_type: "buy_trade",
+    operation_id: trade_id.toString(),
+    type: "trade",
+    is_read: false,
+    created_at: new Date()
+  },
+});
+
+// Emit to buyer
+io.to(buyer.user_id.toString()).emit("new_notification", buyerNotification);
+
+
+        // =======================
+        // SEND EMAIL TO BUYER
+        // =======================
+        await sendTradeEmail(
+            "DISPUTE_OPENED",
+            buyer.email,
+            {
+                trade_id,
+                user_name: buyer.username,
+                side: "buyer",
+                counterparty_name: seller.username,
+                dispute_reason: subject
+            }
+        );
+
+        // =======================
+        // SEND EMAIL TO SELLER
+        // =======================
+        await sendTradeEmail(
+            "DISPUTE_OPENED",
+            seller.email,
+            {
+                trade_id,
+                user_name: seller.username,
+                side: "seller",
+                counterparty_name: buyer.username,
+                dispute_reason: subject
+            }
+        );
 
         return res.status(201).json({
             status: true,
-            message: "Support ticket submitted successfully.",
+            message: "Support ticket submitted & dispute emails sent.",
             data: result,
         });
+
     } catch (error) {
         console.error(error);
         return res.status(500).json({
             status: false,
-            message: "Failed to raise support ticket. Please try again later.",
+            message: "Failed to raise support ticket.",
             errors: error.message,
         });
     }
 };
+
 
 // GET /tickets
 export const getTickets = async (req, res) => {

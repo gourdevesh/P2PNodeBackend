@@ -121,7 +121,7 @@ export const storePaymentDetails = async (req, res) => {
             });
 
             // ---- Create Notification ----
-            await tx.notifications.create({
+         const notification=   await tx.notifications.create({
                 data: {
                     user_id: BigInt(user.user_id),
                     title: "Payment details added successfully.",
@@ -132,6 +132,8 @@ export const storePaymentDetails = async (req, res) => {
 
                 },
             });
+        io.to(notification.user_id.toString()).emit("new_notification", notification);
+
 
             return payment;
         });
@@ -309,7 +311,7 @@ export const addUpiDetails = async (req, res) => {
             });
 
             // INSERT NOTIFICATION
-            await prismaTx.notifications.create({
+        const notification  =  await prismaTx.notifications.create({
                 data: {
                     user_id: BigInt(user.user_id),
                     title: "UPI details added successfully.",
@@ -320,6 +322,8 @@ export const addUpiDetails = async (req, res) => {
 
                 },
             });
+                   io.to(notification.user_id.toString()).emit("new_notification", notification);
+
 
             return created;
         });
@@ -524,7 +528,7 @@ export const updatePaymentDetails = async (req, res) => {
             });
 
             // Create notification
-            await tx.notifications.create({
+          const notification  =  await tx.notifications.create({
                 data: {
                     user_id: user.user_id,
                     title: "Bank payment details updated.",
@@ -535,6 +539,8 @@ export const updatePaymentDetails = async (req, res) => {
 
                 }
             });
+        io.to(notification.user_id.toString()).emit("new_notification", notification);
+
         });
 
         return res.status(200).json({

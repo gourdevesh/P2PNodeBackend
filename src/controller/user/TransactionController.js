@@ -352,20 +352,20 @@ export const sendAsset = async (req, res) => {
       //-----------------------------------------
       // Notifications
       //-----------------------------------------
-      await tx.notifications.create({
+      const senderNotification = await tx.notifications.create({
         data: {
           user_id: BigInt(user.user_id),
           title: "Asset transferred successfully!",
-          message: `You sent ${assetValue} ${fullAssetName(asset)} to ${wallet_address ?? username
-            }.`,
+          message: `You sent ${assetValue} ${fullAssetName(asset)} to ${wallet_address ?? username}.`,
           operation_type: "internal transaction",
           operation_id: String(senderTxn.txn_id),
           type: "trade",
           is_read: false,
+          created_at: new Date(),
         },
       });
 
-      await tx.notifications.create({
+      const receiverNotification = await tx.notifications.create({
         data: {
           user_id: BigInt(receiverUser.user_id),
           title: "You Received an Asset",
@@ -374,10 +374,19 @@ export const sendAsset = async (req, res) => {
           operation_id: String(receiverTxn.txn_id),
           type: "trade",
           is_read: false,
-          created_at: new Date()
-
+          created_at: new Date(),
         },
       });
+      io.to(senderNotification.user_id.toString()).emit(
+        "new_notification",
+        senderNotification
+      );
+
+      io.to(receiverNotification.user_id.toString()).emit(
+        "new_notification",
+        receiverNotification
+      );
+
 
       return true;
     });
@@ -1392,7 +1401,7 @@ export const updateTransactionUsingAddress = async (req, res) => {
       }
 
       // Save Notification
-      await tx.notifications.create({
+     const notification = await tx.notifications.create({
         data: {
           user_id: BigInt(user.user_id),
           title: customSubject,
@@ -1405,6 +1414,7 @@ export const updateTransactionUsingAddress = async (req, res) => {
 
         },
       });
+     io.to(notification.user_id.toString()).emit("new_notification", notification);
     });
 
     return res.json({

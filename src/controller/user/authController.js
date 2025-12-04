@@ -11,6 +11,7 @@ import dayjs from "dayjs";
 import crypto from "crypto";
 import nodemailer from "nodemailer";
 import { subDays } from "date-fns";
+import { sendTradeEmail } from "../EmailController.js";
 
 
 const prisma = new PrismaClient();
@@ -162,7 +163,6 @@ export const register = async (req, res) => {
           logged_in_at: new Date(),
         },
       });
-      console.log(loginDetail)
       return { user: convertBigIntToString(user), token };
     });
     const safeData = convertBigIntToString(result)
@@ -339,6 +339,7 @@ export const login = async (req, res) => {
         });
       }
 
+
       // ------------------------
       // TWO-FACTOR AUTH (2FA)
       // ------------------------
@@ -365,6 +366,10 @@ export const login = async (req, res) => {
 
         console.log(`Send 2FA email to ${user.email} with OTP: ${otp}`);
       }
+
+await sendTradeEmail("SAFETY_TIPS", user.email, {
+  user_name: user.username
+});
 
       // ------------------------
       // RETURN RESPONSE
@@ -451,7 +456,8 @@ export const updateTwoFA = async (req, res) => {
         created_at: new Date()
       };
 
-      await tx.notifications.create({ data: notificationData });
+      const notification =  await tx.notifications.create({ data: notificationData });
+       io.to(notification.user_id.toString()).emit("new_notification", notification);
 
       return updatedUser;
     });
@@ -843,7 +849,6 @@ export const logout = async (req, res) => {
         data: { login_status: "logout", two_fa_otp_verified: false },
       });
 
-      console.log("loginDetail", loginDetail)
       // ------------------------
       // CHECK ACTIVE TOKENS IN LAST 7 DAYS
       // ------------------------
@@ -1027,7 +1032,7 @@ export const addNumber = async (req, res) => {
       });
 
       // Add notification
-      await tx.notifications.create({
+     const notification = await tx.notifications.create({
         data: {
           user_id: user.user_id,
           title: "Phone number added successfully.",
@@ -1038,6 +1043,8 @@ export const addNumber = async (req, res) => {
           created_at: new Date()
         },
       });
+      io.to(notification.user_id.toString()).emit("new_notification", notification);
+
 
       res.status(operation === "add" ? 201 : 200).json({
         status: true,

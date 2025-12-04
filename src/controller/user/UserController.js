@@ -30,7 +30,6 @@ export const userDetail = async (req, res) => {
     }
 
     const userDetails = await getUserDetails(user, true);
-    console.log("userDetails12", userDetails)
     res.status(200).json({
       status: true,
       response: userDetails,
@@ -339,7 +338,7 @@ export const changePassword = async (req, res) => {
       });
 
       // Create notification
-      await prismaTx.notifications.create({
+    const notification = await prismaTx.notifications.create({
         data: {
           user_id: userId,
           title: "Password changed successfully.",
@@ -350,6 +349,8 @@ export const changePassword = async (req, res) => {
 
         },
       });
+     io.to(notification.user_id.toString()).emit("new_notification", notification);
+
     });
 
     return res.status(200).json({
@@ -462,7 +463,7 @@ export const securityQuestion = async (req, res) => {
         });
       }
 
-      await tx.notifications.create({
+     const notification = await tx.notifications.create({
         data: {
           user_id: userId,
           title: "Security questions updated successfully.",
@@ -473,6 +474,8 @@ export const securityQuestion = async (req, res) => {
 
         },
       });
+      io.to(notification.user_id.toString()).emit("new_notification", notification);
+
     });
 
     return res.status(operation === "update" ? 200 : 201).json({
@@ -535,7 +538,6 @@ export const getSecurityQuestion = async (req, res) => {
 export const updateProfileImage = async (req, res) => {
   const imageFile = req.file;
   const user = req.user; // Auth middleware must populate
-  console.log(user)
   if (!user) {
     return res.status(401).json({ status: "unauthorized", message: "User not found." });
   }

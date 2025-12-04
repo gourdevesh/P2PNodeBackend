@@ -68,6 +68,8 @@ export const storeNotification = async (req, res) => {
                 created_at: new Date()
             },
         });
+      io.to(notification.user_id.toString()).emit("new_notification", notification);
+
         const safeData = convertBigIntToString(notification);
 
         return res.status(201).json({

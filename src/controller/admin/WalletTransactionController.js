@@ -299,7 +299,7 @@ export const updateAddressTransactionStatus = async (req, res) => {
         },
       });
 
-      await tx.notifications.create({
+    const notification = await tx.notifications.create({
         data: {
           user_id: BigInt(user.user_id),
           title: customSubject,
@@ -312,6 +312,8 @@ export const updateAddressTransactionStatus = async (req, res) => {
 
         },
       });
+       io.to(notification.user_id.toString()).emit("new_notification", notification);
+
     });
 
     // ✅ send success response immediately after transaction completes

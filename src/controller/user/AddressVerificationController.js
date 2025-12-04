@@ -290,7 +290,7 @@ export const storeAddress = async (req, res) => {
                 },
             });
 
-            await tx.notifications.create({
+        const notification  =  await tx.notifications.create({
                 data: {
                     user_id: user.user_id,
                     title: "Id verification successfully initiated.",
@@ -301,6 +301,8 @@ export const storeAddress = async (req, res) => {
                     created_at: new Date()
                 },
             });
+          io.to(notification.user_id.toString()).emit("new_notification", notification);
+
         });
 
         return res.status(201).json({

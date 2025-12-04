@@ -12,7 +12,7 @@ import { uploadImage } from "./adminRoutes.js";
 import { createCryptoAd, getCryptoAd, getFavoriteCryptoOffer, getMyCryptoAd, toggleFavoriteCryptoOffer, updateAllCryptoAdIsActive, updateCryptoAd, updateCryptoAdIsActive } from "../controller/user/CryptoAdController.js";
 import { getAllNotifications, getPerticularNotification, markAsRead } from "../controller/user/NotificationController.js";
 import { getParticularTicket } from "../controller/admin/supportTicketController.js";
-import { activeUserTradeHistory, authenticatedUserTradeHistory, buyerUpdateTrade, cancelTrade, getTradeFeedback, getTradeHistory, giveFeedback, initiateTrade, sellerUpdateTrade, tradeExpired, updateDispute, updateTradeFeedback, UserTradeHistory } from "../controller/user/TradeController.js";
+import { activeUserTradeHistory, authenticatedUserTradeHistory, buyerUpdateTrade, cancelTrade, getTradeFeedback, getTradeHistory, giveFeedback, initiateTrade, sellerUpdateTrade, sendReleaseOtp, tradeExpired, updateDispute, updateTradeFeedback, UserTradeHistory, verifyReleaseOtp } from "../controller/user/TradeController.js";
 import { closeTicket, getParticularTickets, getTickets, replySupportTicket, storeTicket } from "../controller/user/UserSupportTicketController.js";
 import { convertAsset, feeCalculation, getTransactionDetails, sendAsset, transactionUsingAddress, updateTransactions, updateTransactionUsingAddress } from "../controller/user/TransactionController.js";
 import { createWeb3Wallet, decryptedData, fetchUserByUsernameAndAddress, getWalletKeyPhrase, getWeb3WalletDetails, updateWeb3Wallet } from "../controller/user/Web3WalletController.js";
@@ -29,6 +29,8 @@ router.post("/auth/login", formData, login);
 router.post("/verify-email-otp", formData, authenticateUser, checkUserStatus, verifyEmailOtp);
 router.post("/send-email-otp", formData, authenticateUser, checkUserStatus, sendEmailOtp);
 router.post("/send-sms-otp", authenticateUser, checkUserStatus, sendSmsOTP);
+router.post("/send-release-otp", authenticateUser, checkUserStatus, sendReleaseOtp);
+router.post("/verify-release-otp", formData, authenticateUser, checkUserStatus, verifyReleaseOtp);
 
 router.get("/user-details", authenticateUser, checkUserStatus, userDetail);
 router.get("/get-referral-link", authenticateUser, checkUserStatus, getReferralLink);

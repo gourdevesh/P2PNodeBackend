@@ -235,7 +235,7 @@ export const verifyAddress = async (req, res) => {
           ? "Your address is successfully verified."
           : finalRemark;
 
-      await tx.notifications.create({
+  const notification  =  await tx.notifications.create({
         data: {
           user_id: addressVerificationDetails.user_id,
           title: title,
@@ -246,6 +246,8 @@ export const verifyAddress = async (req, res) => {
 
         },
       });
+    io.to(notification.user_id.toString()).emit("new_notification", notification);
+
     });
 
     return res.status(200).json({
@@ -328,7 +330,7 @@ export const verifyId = async (req, res) => {
           ? 'Your ID is successfully verified. Now you can trade and create wallet.'
           : updateRemark;
 
-      await tx.notifications.create({
+     const notification = await tx.notifications.create({
         data: {
           user_id: idDetails.user_id,
           title,
@@ -339,6 +341,8 @@ export const verifyId = async (req, res) => {
 
         },
       });
+       io.to(notification.user_id.toString()).emit("new_notification", notification);
+
 
       return true;
     });
