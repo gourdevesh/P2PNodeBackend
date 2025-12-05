@@ -7,7 +7,7 @@ import { loginAdmin, logOut, registerAdmin, updateAdmin } from "../controller/ad
 import { adminDetail, changePassword, getAllAdmin, updateProfile } from "../controller/admin/adminController.js";
 import { authenticateAdmin, authenticateUser } from "../middleware/authMiddleware.js";
 import { changeEmailCredential, getSettingData, getWalletKeyPhrase, updateSettingData, walletKeyPhrase } from "../controller/admin/systemController.js";
-import { getAllUsersTickets, getParticularTicket, closeTicket, replySupportTicket } from "../controller/admin/supportTicketController.js";
+import { getAllUsersTickets, getParticularTicket, closeTicket, replySupportTicket, disputeOpened, sendEvidenceRequiredEmail, adminResolveDispute, closeDisputeByAdmin } from "../controller/admin/supportTicketController.js";
 import { getAddressVerificationDetails, getIdVerificationDetails, verifyAddress, verifyId } from "../controller/admin/idAddressVerificationController.js";
 import { getUser, loginHistory, updateUserStatus, userDetails } from "../controller/admin/userDetailsController.js";
 import { getTransactionDetails, getWalletDetails, updateAddressTransactionStatus } from "../controller/admin/WalletTransactionController.js";
@@ -166,6 +166,10 @@ router.post("/admin/trade/complete-requested-trade", formData, authenticateAdmin
 router.post("/admin/setting/update-walletKeyPhrase", formData, authenticateAdmin, walletKeyPhrase);
 router.get("/admin/feedback/get-feedback", authenticateAdmin,requirePermission("feedback"), getFeedback);
 router.post("/admin/feedback/create-feedback", formData, authenticateAdmin,requirePermission("feedback"), createFeedbackFromAdmin);
+router.post("/admin/support/dispute-open", authenticateAdmin,requirePermission("support"), disputeOpened);
+router.post("/admin/support/evidence-required", authenticateAdmin,requirePermission("support"), sendEvidenceRequiredEmail);
+router.post("/admin/support/resove-dispute",formData, authenticateAdmin,requirePermission("support"), adminResolveDispute);
+router.post("/admin/support/close-dispute",formData, authenticateAdmin,requirePermission("support"), closeDisputeByAdmin);
 
 
 

@@ -218,7 +218,7 @@ export const initiateTrade = async (req, res) => {
 
 
     await sendTradeEmail("TRADE_INITIATED", buyer.email, {
-      user_name: buyer.name,
+      user_name: buyer.username,
       trade_id: tradeData.trade_id.toString(),
       side: "Buyer",
       amount_crypto: assetValueFinal,
@@ -236,7 +236,7 @@ export const initiateTrade = async (req, res) => {
     // 2️⃣ SELLER → ESCROW LOCKED
     // -------------------------------
     await sendTradeEmail("ESCROW_LOCKED", seller.email, {
-      user_name: seller.name,
+      user_name: seller.username,
       trade_id: tradeData.trade_id.toString(),
       amount_crypto: assetValueFinal,
       asset,
@@ -252,7 +252,7 @@ export const initiateTrade = async (req, res) => {
     // 3️⃣ BUYER → PAYMENT INSTRUCTIONS
     // -------------------------------
     await sendTradeEmail("PAYMENT_INSTRUCTIONS", buyer.email, {
-      user_name: buyer.name,
+      user_name: buyer.username,
       trade_id: tradeData.trade_id.toString(),
       amount_fiat: tradeAmount,
       fiat: userCurrency.toUpperCase(),
@@ -2006,7 +2006,7 @@ export const activeUserTradeHistory = async (req, res) => {
 };
 
 
-const genTxnHash = (userId) => {
+export const genTxnHash = (userId) => {
   // simple txn hash generator - replace with your real one
   return `${userId}-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
 };
@@ -2017,7 +2017,7 @@ const parseMinutesFromAvg = (avgStr) => {
   return isNaN(num) ? 0 : num;
 };
 
-const feeDetails = (feeType, feeValue, amount) => {
+export const feeDetails = (feeType, feeValue, amount) => {
   // placeholder: implement your real fee logic
   let transferFee = 0;
   let transferPercentage = 0;
