@@ -931,6 +931,8 @@ export const updateDispute = async (req, res) => {
         data: {
           support_ticket_number,
           is_disputed: true,
+          buyer_dispute_time: new Date(),
+          seller_dispute_time: new Date(),
           updated_at: new Date(),
         }
       });

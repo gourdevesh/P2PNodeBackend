@@ -816,7 +816,6 @@ export const adminResolveDispute = async (req, res) => {
     }
 };
 
-
 export const closeDisputeByAdmin = async (req, res) => {
     try {
         const { ticket_id } = req.body;
@@ -851,6 +850,8 @@ export const closeDisputeByAdmin = async (req, res) => {
         }
 
         const trade = ticket.trades[0];
+        const buyerId = trade.buyer_id;
+        const sellerId = trade.seller_id;
 
         // Step 1: Update Ticket Status
         await prisma.support_tickets.update({
@@ -858,16 +859,57 @@ export const closeDisputeByAdmin = async (req, res) => {
             data: { status: "closed" }
         });
 
-        // Step 2: Send Email (Using your sendTradeEmail function)
+        // Step 2: Update Trade → close dispute
+        await prisma.trades.update({
+            where: { trade_id: trade.trade_id },
+            data: {
+                is_disputed: false,
+                trade_remark: "Dispute closed by admin",
+                buyer_dispute_time: new Date(),
+                seller_dispute_time: new Date()
+
+            }
+        });
+
+        // Step 3: Send Notifications
+        if (buyerId && sellerId) {
+            const buyerNotification = await prisma.notifications.create({
+                data: {
+                    user_id: buyerId,
+                    title: "Dispute Closed",
+                    message: "Your dispute has been closed by admin. Please check trade details.",
+                    type: "support",
+                    operation_id: trade.trade_id.toString(),
+                    created_at: new Date()
+                }
+            });
+
+            const sellerNotification = await prisma.notifications.create({
+                data: {
+                    user_id: sellerId,
+                    title: "Dispute Closed",
+                    message: "Dispute for this trade has been closed by admin.",
+                    type: "support",
+                    operation_id: trade.trade_id.toString(),
+                    created_at: new Date()
+                }
+            });
+
+            // Emit real-time notifications via Socket.IO
+            io.to(buyerNotification.user_id.toString()).emit("new_notification", buyerNotification);
+            io.to(sellerNotification.user_id.toString()).emit("new_notification", sellerNotification);
+        }
+
+        // Step 4: Send Email
         await sendTradeEmail("DISPUTE_AUTO_CLOSED", ticket.user.email, {
             user_name: ticket.user.username,
             trade_id: trade.trade_id,
-            platform_name: "crpyto"
+            platform_name: "crypto"
         });
 
         return res.json({
             status: true,
-            message: "Dispute closed successfully & email sent"
+            message: "Dispute closed successfully, trade updated, email & notifications sent"
         });
 
     } catch (error) {
