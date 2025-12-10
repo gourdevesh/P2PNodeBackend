@@ -6,7 +6,7 @@ import timezone from "dayjs/plugin/timezone.js";
 import { convertBigIntToString } from '../../config/convertBigIntToString.js';
 import { sendTradeEmail } from '../EmailController.js';
 import { Prisma } from '@prisma/client';
-import { cryptoAsset, fullAssetName, network } from '../../config/ReusableCode.js';
+import { cryptoAsset, fullAssetName, getCurrentTimeInKolkata, network } from '../../config/ReusableCode.js';
 import { feeDetails, genTxnHash } from '../user/TradeController.js';
 
 dayjs.extend(utc);
@@ -39,60 +39,62 @@ function diffForHumans(date) {
 // Enable the relativeTime plugin
 dayjs.extend(relativeTime);
 
-
 export const getAllUsersTickets = async (req, res) => {
     try {
-        const user = req.user; // logged-in user
+        const user = req.user;
         const perPage = parseInt(req.query.per_page) || 10;
         const page = parseInt(req.query.page) || 1;
 
-        // Base query
-        // Base query
         let whereCondition = {};
 
-        // Simple filters
+        // Basic Filters
         const filterFields = ["user_id", "status", "ticket_id", "ticket_number"];
-
         filterFields.forEach((field) => {
-            if (req.query[field]) {
+            if (req.query[field] && req.query[field] !== "null") {
                 whereCondition[field] = req.query[field];
             }
         });
 
-        // 🔥 TRADE ID FILTER LOGIC
+        // ----------------------------------------------------
+        // 🔥 TRADE ID SEARCH LOGIC (MOST IMPORTANT FIX)
+        // ----------------------------------------------------
         if (req.query.trade_id) {
             const tradeId = Number(req.query.trade_id);
 
-            // 1️⃣ Trade fetch karo jisme yeh trade_id ho
             const trade = await prisma.trades.findUnique({
                 where: { trade_id: tradeId },
-                select: { support_ticket_number: true }
+                select: { support_ticket_number: true },
             });
 
-            if (!trade) {
-                return res.status(200).json({
-                    status: true,
+            // Trade not found OR ticket_number NULL → Stop search
+            if (!trade || !trade.support_ticket_number) {
+                return res.status(404).json({
+                    status: false,
                     message: "No tickets found for this trade ID.",
                     data: [],
-                    pagination: {
-                        current_page: 1,
-                        per_page: 10,
-                        total: 0,
-                        last_page: 1
-                    },
-                    analytics: {}
+                    pagination: { total: 0, last_page: 1 },
                 });
             }
 
-            // 2️⃣ ticket_number by trade
             whereCondition.ticket_number = trade.support_ticket_number;
         }
 
+        // ----------------------------------------------------
+        // 🚫 PREVENT PRISMA ERROR WHEN TICKET_NUMBER = NULL
+        // ----------------------------------------------------
+        if (whereCondition.ticket_number === null) {
+            return res.status(404).json({
+                status: false,
+                message: "No tickets found!",
+                data: [],
+            });
+        }
 
-        // ✅ Total tickets
+        // ----------------------------------------------------
+        // 🔢 TOTAL TICKETS ANALYTICS
+        // ----------------------------------------------------
         const totalTickets = await prisma.support_tickets.count();
 
-        // ✅ Analytics count by status
         const statuses = ["open", "pending", "in_progress", "closed"];
         const analytics = { total_tickets: totalTickets };
 
@@ -102,13 +104,16 @@ export const getAllUsersTickets = async (req, res) => {
             });
         }
 
-        // ✅ Total filtered tickets
+        // Total Filtered
         const totalFilteredTickets = await prisma.support_tickets.count({
             where: whereCondition,
         });
+
         analytics.total_filtered_tickets = totalFilteredTickets;
 
-        // ✅ Fetch filtered + paginated data
+        // ----------------------------------------------------
+        // 📌 FETCH PAGINATED TICKETS
+        // ----------------------------------------------------
         const tickets = await prisma.support_tickets.findMany({
             where: whereCondition,
             include: {
@@ -119,7 +124,18 @@ export const getAllUsersTickets = async (req, res) => {
             take: perPage,
         });
 
-        // ✅ For each ticket, fetch related trade details
+        // If no data found
+        if (!tickets || tickets.length === 0) {
+            return res.status(404).json({
+                status: false,
+                message: "No tickets found!",
+                data: [],
+            });
+        }
+
+        // ----------------------------------------------------
+        // 🔗 ADD TRADE DETAILS + REPORTER/REPORTED LOGIC
+        // ----------------------------------------------------
         const ticketsWithTrades = await Promise.all(
             tickets.map(async (ticket) => {
                 let trade = null;
@@ -127,42 +143,26 @@ export const getAllUsersTickets = async (req, res) => {
                 let buyerDetails = null;
 
                 if (ticket.ticket_number) {
-                    // 1️⃣ Fetch Trade
                     trade = await prisma.trades.findFirst({
                         where: { support_ticket_number: ticket.ticket_number },
                     });
 
-                    // 2️⃣ Seller
+                    // Seller Details
                     if (trade?.seller_id) {
                         sellerDetails = await prisma.users.findUnique({
                             where: { user_id: Number(trade.seller_id) },
-                            select: {
-                                user_id: true,
-                                name: true,
-                                email: true,
-                                phone_number: true,
-                                username: true
-                            }
                         });
                     }
 
-                    // 3️⃣ Buyer
+                    // Buyer Details
                     if (trade?.buyer_id) {
                         buyerDetails = await prisma.users.findUnique({
                             where: { user_id: Number(trade.buyer_id) },
-                            select: {
-                                user_id: true,
-                                name: true,
-                                email: true,
-                                phone_number: true,
-                                username: true
-                            }
                         });
                     }
                 }
-                // 4️⃣ Reporter & Reported Logic
 
-
+                // Reporter Logic
                 let reporter = null;
                 let reported = null;
 
@@ -180,35 +180,30 @@ export const getAllUsersTickets = async (req, res) => {
                     }
                 }
 
-
                 return {
                     ...ticket,
-                    trade_details: trade || null,
-                    reporter_details: reporter || null,
-                    reported_details: reported || null,
+                    trade_details: trade,
+                    reporter_details: reporter,
+                    reported_details: reported,
                 };
             })
         );
 
+        const safeData = convertBigIntToString(ticketsWithTrades);
 
-        // ✅ Pagination info
+        // ----------------------------------------------------
+        // 📌 PAGINATION DETAILS
+        // ----------------------------------------------------
         const pagination = {
             current_page: page,
             per_page: perPage,
             total: totalFilteredTickets,
             last_page: Math.ceil(totalFilteredTickets / perPage),
-            from: (page - 1) * perPage + 1,
-            to: Math.min(page * perPage, totalFilteredTickets),
-            next_page_url:
-                page < Math.ceil(totalFilteredTickets / perPage)
-                    ? `?page=${page + 1}&per_page=${perPage}`
-                    : null,
-            prev_page_url: page > 1 ? `?page=${page - 1}&per_page=${perPage}` : null,
         };
 
-        const safeData = convertBigIntToString(ticketsWithTrades);
-
-        // ✅ Final Response
+        // ----------------------------------------------------
+        // ✅ FINAL SUCCESS RESPONSE
+        // ----------------------------------------------------
         return res.status(200).json({
             status: true,
             message: "Support tickets retrieved successfully.",
@@ -216,6 +211,7 @@ export const getAllUsersTickets = async (req, res) => {
             pagination,
             analytics,
         });
+
     } catch (error) {
         console.error("GET TICKETS ERROR:", error);
         return res.status(500).json({
@@ -225,6 +221,7 @@ export const getAllUsersTickets = async (req, res) => {
         });
     }
 };
+ 
 
 export const getParticularTicket = async (req, res) => {
     try {
@@ -841,6 +838,12 @@ export const closeDisputeByAdmin = async (req, res) => {
                 message: "Ticket not found"
             });
         }
+        if (ticket.status === "closed") {
+            return res.status(400).json({
+                status: false,
+                message: "This dispute is already closed."
+            });
+        }
 
         if (!ticket.trades || ticket.trades.length === 0) {
             return res.status(404).json({
@@ -917,6 +920,320 @@ export const closeDisputeByAdmin = async (req, res) => {
         return res.status(500).json({
             status: false,
             message: "Internal server error"
+        });
+    }
+};
+
+export const cancelTradeByAdmin = async (req, res) => {
+    try {
+        const user = req.user;
+        const { trade_id } = req.body;
+
+        if (!trade_id) {
+            return res.status(422).json({
+                status: false,
+                message: "Trade ID is required.",
+            });
+        }
+
+        const tradeDetails = await prisma.trades.findUnique({
+            where: { trade_id: BigInt(trade_id) },
+        });
+
+        if (!tradeDetails) {
+            return res.status(422).json({
+                status: false,
+                message: "Trade not found for the given trade id.",
+            });
+        }
+
+        // Validate immediately
+        if (tradeDetails.trade_status === "cancel") {
+            return res.status(403).json({
+                status: false,
+                message: "Trade is already cancelled.",
+            });
+        }
+
+        if (tradeDetails.trade_step >= 3) {
+            return res.status(403).json({
+                status: false,
+                message: "Cannot cancel at this stage.",
+            });
+        }
+
+        // Load wallet + cryptoAd OUTSIDE transaction
+        const sellerWallet = await prisma.web3_wallets.findFirst({
+            where: { user_id: BigInt(tradeDetails.seller_id) },
+        });
+
+        const cryptoAd = await prisma.crypto_ads.findUnique({
+            where: { crypto_ad_id: tradeDetails.crypto_ad_id },
+        });
+
+        // ⭐ TRANSACTION — ONLY UPDATES INSIDE
+        await prisma.$transaction(
+            async (tx) => {
+                await tx.web3_wallets.update({
+                    where: { wallet_id: sellerWallet.wallet_id },
+                    data: {
+                        hold_asset:
+                            sellerWallet.hold_asset -
+                            tradeDetails.hold_asset,
+                    },
+                });
+
+                await tx.crypto_ads.update({
+                    where: { crypto_ad_id: cryptoAd.crypto_ad_id },
+                    data: {
+                        remaining_trade_limit:
+                            cryptoAd.remaining_trade_limit +
+                            tradeDetails.amount,
+                    },
+                });
+
+                await tx.trades.update({
+                    where: { trade_id: BigInt(tradeDetails.trade_id) },
+                    data: {
+                        hold_asset: 0,
+                        trade_status: "cancel",
+                        buyer_status: "cancel",
+                        status_changed_at: getCurrentTimeInKolkata(),
+                        time_limit: null,
+                    },
+                });
+            },
+            {
+                timeout: 15000, // ⭐ Correct placement
+                maxWait: 15000,
+            }
+        );
+
+        // Load buyer/seller for notifications — OUTSIDE TRANSACTION
+        const buyerDetails = await prisma.users.findUnique({
+            where: { user_id: BigInt(tradeDetails.buyer_id) },
+            select: { email: true, name: true, username: true },
+        });
+
+        const sellerDetails = await prisma.users.findUnique({
+            where: { user_id: BigInt(tradeDetails.seller_id) },
+            select: { email: true, name: true, username: true },
+        });
+
+        const cryptoSymbol = tradeDetails.asset.toUpperCase();
+        const cryptoAmount = tradeDetails.hold_asset?.toString() ?? "0";
+
+        // Notifications
+        const sellerNotification = await prisma.notifications.create({
+            data: {
+                user_id: BigInt(tradeDetails.seller_id),
+                title: "Trade Cancelled by Buyer",
+                message: `The trade with buyer ${buyerDetails.username} for ${cryptoAmount} ${cryptoSymbol} has been cancelled by the buyer.`,
+                operation_type: "sell_trade",
+                operation_id: tradeDetails.trade_id.toString(),
+                type: "trade",
+                is_read: false,
+                created_at: new Date(),
+            },
+        });
+
+        const buyerNotification = await prisma.notifications.create({
+            data: {
+                user_id: BigInt(tradeDetails.buyer_id),
+                title: "You Cancelled the Trade",
+                message: `You have successfully cancelled the trade with seller ${sellerDetails.username} for ${cryptoAmount} ${cryptoSymbol}.`,
+                operation_type: "buy_trade",
+                operation_id: tradeDetails.trade_id.toString(),
+                type: "trade",
+                is_read: false,
+                created_at: new Date(),
+            },
+        });
+
+        // Emit
+        io.to(tradeDetails.seller_id.toString()).emit("new_notification", sellerNotification);
+        io.to(tradeDetails.buyer_id.toString()).emit("new_notification", buyerNotification);
+
+        // Emails
+        await sendTradeEmail("TRADE_CANCELLED", buyerDetails.email, {
+            trade_id: tradeDetails.trade_id.toString(),
+            user_name: buyerDetails.username,
+            side: "Buyer",
+            asset: tradeDetails.asset,
+            amount_crypto: tradeDetails.buy_value,
+            amount_fiat: tradeDetails.buy_amount,
+            fiat: tradeDetails.fiat_currency || "INR",
+        });
+
+        await sendTradeEmail("TRADE_CANCELLED", sellerDetails.email, {
+            trade_id: tradeDetails.trade_id.toString(),
+            user_name: sellerDetails.username,
+            side: "Seller",
+            asset: tradeDetails.asset,
+            amount_crypto: tradeDetails.buy_value,
+            amount_fiat: tradeDetails.buy_amount,
+            fiat: tradeDetails.fiat_currency || "INR",
+        });
+
+        return res
+            .status(200)
+            .json({ status: true, message: "Trade cancelled successfully." });
+    } catch (error) {
+        console.log("Error caught:", error);
+
+        const statusCode =
+            typeof error.code === "number"
+                ? error.code
+                : error.code === "P2028"
+                    ? 400
+                    : 500;
+
+        return res.status(statusCode).json({
+            status: false,
+            message: error.message || "Failed to cancel trade.",
+        });
+    }
+};
+
+
+export const resertNewTrade = async (req, res) => {
+    try {
+        const { trade_id, amount, assetValue, cryptocurrency } = req.body;
+
+        if (!trade_id) {
+            return res.status(400).json({
+                status: false,
+                message: "trade_id is required",
+            });
+        }
+
+        // Fetch old trade
+        const trade = await prisma.trades.findUnique({
+            where: { trade_id: BigInt(trade_id) }
+        });
+
+        if (!trade) {
+            return res.status(404).json({
+                status: false,
+                message: "Trade not found",
+            });
+        }
+
+        const buyerId = trade.initiated_by;
+        const sellerId = trade.seller_id;
+
+        // Update trade
+        const updated = await prisma.trades.update({
+            where: { trade_id: BigInt(trade_id) },
+            data: {
+                amount: Number(amount),
+                buy_amount: Number(assetValue),
+                buy_value: Number(assetValue),
+                asset: cryptocurrency,
+                trade_step: "TWO",
+                updated_at: new Date(),
+                trade_status: "pending"
+            }
+        });
+
+        console.log("updated", updated)
+
+        // Buyer Notification
+        const buyerNotification = await prisma.notifications.create({
+            data: {
+                user_id: buyerId,
+                title: "Trade Updated",
+                message: "Admin has reset your trade details. Please review the updated trade information.",
+                type: "trade",
+                operation_id: updated.trade_id.toString(),
+                created_at: new Date()
+            }
+        });
+
+        // Seller Notification
+        const sellerNotification = await prisma.notifications.create({
+            data: {
+                user_id: sellerId,
+                title: "Trade Updated",
+                message: "Admin has reset the trade details for this transaction.",
+                type: "trade",
+                operation_id: updated.trade_id.toString(),
+                created_at: new Date()
+            }
+        });
+
+        // Real-time Notification Emit
+        io.to(buyerId.toString()).emit("new_notification", buyerNotification);
+        io.to(sellerId.toString()).emit("new_notification", sellerNotification);
+
+        return res.json({
+            status: true,
+            message: "Trade updated successfully",
+            data: updated
+        });
+
+    } catch (error) {
+        console.log(error);
+        return res.status(500).json({
+            status: false,
+            message: "Server Error",
+            error: error.message
+        });
+    }
+};
+
+export const sendSystemMessage = async (req, res) => {
+    try {
+        const { tradeId, userId, message } = req.body;
+
+        if (!tradeId || !userId || !message) {
+            return res.status(400).json({
+                status: false,
+                message: "tradeId, userId and message are required",
+            });
+        }
+
+        // 1️⃣ Save notification in DB
+
+        const notification = await prisma.notifications.create({
+            data: {
+                user_id: userId,
+                title: "New message from Admin",
+                message: message,
+                type: "support",
+                created_at: new Date(),
+            }
+        });
+        console.log("notification", notification)
+        // 2️⃣ Emit socket event
+        io.to(userId.toString()).emit("new_notification",notification );
+
+        // 3️⃣ Fetch user email
+        const user = await prisma.users.findUnique({
+            where: { user_id: BigInt(userId) },
+            select: { email: true, username: true },
+        });
+
+        // 4️⃣ Send email if available
+        if (user?.email) {
+            await sendTradeEmail("ADMIN_MESSAGE", user.email, {
+                user_name: user.username,
+                trade_id: tradeId,
+                message: message,
+            });
+        }
+
+        return res.json({
+            status: true,
+            message: "Notification saved, sent via socket & email successfully",
+            data: notification,
+        });
+
+    } catch (error) {
+        console.error("Send System Message Error:", error);
+        return res.status(500).json({
+            status: false,
+            message: "Internal server error",
         });
     }
 };

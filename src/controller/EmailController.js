@@ -449,6 +449,26 @@ function buildTemplate(type, data = {}) {
             `
                 )
             };
+           case "ADMIN_MESSAGE":
+    return {
+        subject: `Message from Admin regarding Trade #${data.trade_id}`,
+        html: wrapTemplate(
+            "New Message from Admin",
+            `
+            <p>Hi ${data.user_name || "User"},</p>
+
+            <p>The admin has sent you a message regarding your trade <strong>#${data.trade_id}</strong>:</p>
+
+            <blockquote style="padding:10px; border-left:3px solid #ccc; margin:10px 0;">
+                ${data.message}
+            </blockquote>
+
+            <p>Please check your trade dashboard for more details.</p>
+
+            <p>Regards,<br/>${data.platform_name || APP_NAME} Team</p>
+            `
+        )
+    };
 
         case "SAFETY_TIPS":
             return {

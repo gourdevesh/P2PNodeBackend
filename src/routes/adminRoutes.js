@@ -7,7 +7,7 @@ import { loginAdmin, logOut, registerAdmin, updateAdmin } from "../controller/ad
 import { adminDetail, changePassword, getAllAdmin, updateProfile } from "../controller/admin/adminController.js";
 import { authenticateAdmin, authenticateUser } from "../middleware/authMiddleware.js";
 import { changeEmailCredential, getSettingData, getWalletKeyPhrase, updateSettingData, walletKeyPhrase } from "../controller/admin/systemController.js";
-import { getAllUsersTickets, getParticularTicket, closeTicket, replySupportTicket, disputeOpened, sendEvidenceRequiredEmail, adminResolveDispute, closeDisputeByAdmin } from "../controller/admin/supportTicketController.js";
+import { getAllUsersTickets, getParticularTicket, closeTicket, replySupportTicket, disputeOpened, sendEvidenceRequiredEmail, adminResolveDispute, closeDisputeByAdmin, resertNewTrade, cancelTradeByAdmin, sendSystemMessage } from "../controller/admin/supportTicketController.js";
 import { getAddressVerificationDetails, getIdVerificationDetails, verifyAddress, verifyId } from "../controller/admin/idAddressVerificationController.js";
 import { getUser, loginHistory, updateUserStatus, userDetails } from "../controller/admin/userDetailsController.js";
 import { getTransactionDetails, getWalletDetails, updateAddressTransactionStatus } from "../controller/admin/WalletTransactionController.js";
@@ -120,27 +120,27 @@ router.post(
 );
 router.get("/admin/profile/admin-details", authenticateAdmin, adminDetail);
 router.get("/admin/all-admin-details", authenticateAdmin, requirePermission("admin"), getAllAdmin);
-router.get("/admin/setting/get-setting-data", authenticateAdmin,requirePermission("settings"), getSettingData);
+router.get("/admin/setting/get-setting-data", authenticateAdmin, requirePermission("settings"), getSettingData);
 router.get("/admin/support-tickets/get-tickets", authenticateAdmin, requirePermission("support"), getAllUsersTickets);
 router.get("/admin/support-tickets/get-particular-ticket/:id", authenticateAdmin, requirePermission("support"), getParticularTicket);
 router.get("/admin/verification/get-address-verification-details", authenticateAdmin, requirePermission("users"), getAddressVerificationDetails);
 router.get("/admin/verification/get-id-verification-details", authenticateAdmin, requirePermission("users"), getIdVerificationDetails);
 router.get("/admin/user/user-details/:id", authenticateAdmin, requirePermission("users"), getUser);
-router.get("/admin/user/login-history/:id", authenticateAdmin,  requirePermission("users"),loginHistory);
+router.get("/admin/user/login-history/:id", authenticateAdmin, requirePermission("users"), loginHistory);
 router.get("/admin/user/user-details", authenticateAdmin, requirePermission("users"), userDetails);
-router.get("/admin/transaction/get-wallet-details", authenticateAdmin,requirePermission("wallet_detail"), getWalletDetails);
-router.get("/admin/transaction/get-transaction-details", authenticateAdmin,requirePermission("wallet_detail"), getTransactionDetails);
-router.post("/admin/transaction/update-address-transaction-status", formData, authenticateAdmin,requirePermission("wallet_detail"), updateAddressTransactionStatus);
+router.get("/admin/transaction/get-wallet-details", authenticateAdmin, requirePermission("wallet_detail"), getWalletDetails);
+router.get("/admin/transaction/get-transaction-details", authenticateAdmin, requirePermission("wallet_detail"), getTransactionDetails);
+router.post("/admin/transaction/update-address-transaction-status", formData, authenticateAdmin, requirePermission("wallet_detail"), updateAddressTransactionStatus);
 
 router.get("/admin/trade/get-trade-history", authenticateAdmin, requirePermission("trade"), getTradeHistory);
 router.get("/admin/account-details/get-payment-details", authenticateAdmin, requirePermission("payment"), getPaymentDetails);
 router.get("/admin/account-details/get-upi-details", authenticateAdmin, requirePermission("payment"), getUpiDetails);
-router.get("/admin/setting/get-walletKeyPhrase", authenticateAdmin, requirePermission("payment"),  getWalletKeyPhrase);
+router.get("/admin/setting/get-walletKeyPhrase", authenticateAdmin, requirePermission("payment"), getWalletKeyPhrase);
 router.post("/admin/account-details/update-payment-details-status", formData, authenticateAdmin, validateUpdatePaymentStatus, requirePermission("payment"), updatePaymentDetailsStatus);
 router.post("/admin/account-details/update-upi-details-status", formData, authenticateAdmin, validateUpdatePaymentStatus, requirePermission("payment"), updateUpiDetailsStatus);
 router.post("/admin/user/update-user-status", formData, authenticateAdmin, requirePermission("users"), updateUserStatus);
 router.post("/admin/profile/change-password", formData, authenticateAdmin, changePassword);
-router.post("/admin/setting/update-setting-data", formData, authenticateAdmin,requirePermission("settings"), updateSettingData);
+router.post("/admin/setting/update-setting-data", formData, authenticateAdmin, requirePermission("settings"), updateSettingData);
 router.post("/admin/setting/change-email-credential", formData, authenticateAdmin, changeEmailCredential);
 
 router.post("/admin/verification/verify-address", formData, authenticateAdmin, requirePermission("users"), verifyAddress);
@@ -149,14 +149,14 @@ router.post("/admin/support-tickets/close-ticket", formData, authenticateAdmin, 
 router.post("/admin/support-tickets/reply-support-ticket", authenticateAdmin, uploadAttachments.array("attachment[]", 5), requirePermission("support"), replySupportTicket);
 
 router.post("/admin/website/update-nameTitleUrl", formData, authenticateAdmin, requirePermission("settings"), updateNameUrlTitle);
-router.get("/admin/website/details", authenticateAdmin,requirePermission("settings"), getWebsiteDetails);
+router.get("/admin/website/details", authenticateAdmin, requirePermission("settings"), getWebsiteDetails);
 router.post("/admin/profile/update-profile", uploadImage.single("profile_image"), authenticateAdmin, updateProfile);
 router.get("/admin/admin-wallet/get-assets-details", authenticateAdmin, getAdminAssets);
 router.post("/admin/admin-wallet/create-assets-details", formData, authenticateAdmin, createAdminAsset);
 router.post("/admin/admin-wallet/update-assets-details", formData, authenticateAdmin, updateAdminAssets);
 
 router.get("/admin/crypto-advertisement/crypto-ad", authenticateAdmin, getCryptoAd);
-router.post("/admin/website/update-logoAndFavicon", authenticateAdmin, uploadMultiple, requirePermission("settings"),updateLogoFavicon);
+router.post("/admin/website/update-logoAndFavicon", authenticateAdmin, uploadMultiple, requirePermission("settings"), updateLogoFavicon);
 router.post("/admin/notifications", formData, authenticateAdmin, storeNotification);
 router.delete("/admin/delete-notifications/:id", authenticateAdmin, deleteNotification);
 router.delete("/admin/auth/logout", formData, authenticateAdmin, logOut);
@@ -164,13 +164,15 @@ router.post("/admin/crypto-advertisement/toggle-cryptoAd-active", formData, auth
 router.get("/admin/dashboard", authenticateAdmin, getDashboard);
 router.post("/admin/trade/complete-requested-trade", formData, authenticateAdmin, completeRequestedPendingTrade);
 router.post("/admin/setting/update-walletKeyPhrase", formData, authenticateAdmin, walletKeyPhrase);
-router.get("/admin/feedback/get-feedback", authenticateAdmin,requirePermission("feedback"), getFeedback);
-router.post("/admin/feedback/create-feedback", formData, authenticateAdmin,requirePermission("feedback"), createFeedbackFromAdmin);
-router.post("/admin/support/dispute-open", authenticateAdmin,requirePermission("support"), disputeOpened);
-router.post("/admin/support/evidence-required", authenticateAdmin,requirePermission("support"), sendEvidenceRequiredEmail);
-router.post("/admin/support/resove-dispute",formData, authenticateAdmin,requirePermission("support"), adminResolveDispute);
-router.post("/admin/support/close-dispute",formData, authenticateAdmin,requirePermission("support"), closeDisputeByAdmin);
-
+router.get("/admin/feedback/get-feedback", authenticateAdmin, requirePermission("feedback"), getFeedback);
+router.post("/admin/feedback/create-feedback", formData, authenticateAdmin, requirePermission("feedback"), createFeedbackFromAdmin);
+router.post("/admin/support/dispute-open", authenticateAdmin, requirePermission("support"), disputeOpened);
+router.post("/admin/support/evidence-required", authenticateAdmin, requirePermission("support"), sendEvidenceRequiredEmail);
+router.post("/admin/support/resove-dispute", formData, authenticateAdmin, requirePermission("support"), adminResolveDispute);
+router.post("/admin/support/close-dispute", formData, authenticateAdmin, requirePermission("support"), closeDisputeByAdmin);
+router.post("/admin/support/resart-new-trade", formData, authenticateAdmin, requirePermission("support"), resertNewTrade);
+router.post("/admin/trade/cancel-trade", formData, authenticateAdmin, cancelTradeByAdmin);
+router.post("/admin/trade/system-message", formData, authenticateAdmin, sendSystemMessage);
 
 
 export default router;
