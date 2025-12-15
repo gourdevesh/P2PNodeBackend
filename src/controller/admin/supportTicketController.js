@@ -221,7 +221,7 @@ export const getAllUsersTickets = async (req, res) => {
         });
     }
 };
- 
+
 
 export const getParticularTicket = async (req, res) => {
     try {
@@ -724,7 +724,7 @@ export const adminResolveDispute = async (req, res) => {
                 }
             });
 
-            await tx.support_tickets.updateMany({
+           const supportTicket= await tx.support_tickets.updateMany({
                 where: {
                     trades: {
                         some: {
@@ -734,10 +734,11 @@ export const adminResolveDispute = async (req, res) => {
                 },
                 data: {
                     status: "resolved",
+                    result: decision,
                     updated_at: new Date(),
                 },
             });
-
+    console.log("supportTicket",supportTicket)
             // NOTIFICATIONS
             const buyerNotification = await tx.notifications.create({
                 data: {
@@ -1206,7 +1207,7 @@ export const sendSystemMessage = async (req, res) => {
         });
         console.log("notification", notification)
         // 2️⃣ Emit socket event
-        io.to(userId.toString()).emit("new_notification",notification );
+        io.to(userId.toString()).emit("new_notification", notification);
 
         // 3️⃣ Fetch user email
         const user = await prisma.users.findUnique({

@@ -466,7 +466,7 @@ model support_tickets {
   created_at    DateTime?                 @db.Timestamp(0)
   updated_at    DateTime?                 @db.Timestamp(0)
   user          users                     @relation(fields: [user_id], references: [user_id])
-
+  result        dispute_result?           
   support_ticket_messages support_ticket_messages[]
   trades           trades[]    @relation("TicketTrades", fields: [], references: [])
 
@@ -973,4 +973,9 @@ enum users_user_status {
   active
   block
   terminate
+}
+
+enum dispute_result {
+  buyer
+  seller
 }
