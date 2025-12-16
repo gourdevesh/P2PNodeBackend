@@ -94,6 +94,8 @@ export const getIdVerificationDetails = async (req, res) => {
     const filters = {};
     if (req.query.user_id) filters.user_id = Number(req.query.user_id);
     if (req.query.status) filters.status = req.query.status;
+        if (req.query.residence_country) filters.residence_country = req.query.residence_country;
+
 
     // Total counts
     const totalIdVerification = await prisma.addresses.count();

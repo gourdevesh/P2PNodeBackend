@@ -724,7 +724,7 @@ export const adminResolveDispute = async (req, res) => {
                 }
             });
 
-           const supportTicket= await tx.support_tickets.updateMany({
+            const supportTicket = await tx.support_tickets.updateMany({
                 where: {
                     trades: {
                         some: {
@@ -738,7 +738,6 @@ export const adminResolveDispute = async (req, res) => {
                     updated_at: new Date(),
                 },
             });
-    console.log("supportTicket",supportTicket)
             // NOTIFICATIONS
             const buyerNotification = await tx.notifications.create({
                 data: {

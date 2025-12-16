@@ -5,100 +5,100 @@ import { Prisma } from "@prisma/client";
 import dayjs from 'dayjs';
 
 export const getTradeHistory = async (req, res) => {
-    const admin = req.admin; // assuming middleware sets admin data
-    console.log(admin)
-    try {
-        const perPage = parseInt(req.query.per_page) || 10;
-        const userId = req.query.user_id ? (req.query.user_id) : null;
-        const whereClause = {};
+  const admin = req.admin; // assuming middleware sets admin data
+  console.log(admin)
+  try {
+    const perPage = parseInt(req.query.per_page) || 10;
+    const userId = req.query.user_id ? (req.query.user_id) : null;
+    const whereClause = {};
 
-        if (userId) {
-            whereClause.OR = [
-            { seller_id: userId },
-                { buyer_id: userId }
-            ];
-        }
-
-        if (req.query.trade_id) {
-            whereClause.trade_id = req.query.trade_id;
-        }
-        if (req.query.cryptocurrency) {
-            whereClause.asset = req.query.cryptocurrency;
-        }
-        if (req.query.tradeStatus) {
-            whereClause.trade_status = req.query.tradeStatus;
-        }
-        if (req.query.tradeType) {
-            whereClause.trade_type = req.query.tradeType;
-        }
-
-        // Counts
-        const totalTrade = await prisma.trades.count();
-        const totalFilteredTrade = await prisma.trades.count({ where: whereClause });
-
-        // Pagination
-        const page = parseInt(req.query.page) || 1;
-        const skip = (page - 1) * perPage;
-
-        const tradeHistories = await prisma.trades.findMany({
-            where: whereClause,
-            skip,
-            take: perPage,
-            orderBy: { trade_id: 'desc' } // or tradeId if camelCase
-        });
-
-        // Post-processing
-        const processedTrades = tradeHistories.map((trade) => {
-            const payment = trade.payment ? JSON.parse(trade.payment) : null;
-            const review = trade.review ? JSON.parse(trade.review) : null;
-
-            let payment_details = trade.payment_details
-                ? `${process.env.BASE_URL || 'http://localhost:5000'}/storage/${trade.payment_details}`
-                : null;
-
-            const role = userId
-                ? trade.buyer_id === userId ? 'buyer' : 'seller'
-                : trade.buyer_id === trade.user_id ? 'buyer' : 'seller';
-
-            return {
-                ...trade,
-                payment,
-                review,
-                payment_details,
-                role
-            };
-        });
-
-        // Pagination metadata
-        const pagination = {
-            current_page: page,
-            per_page: perPage,
-            total: totalFilteredTrade,
-            last_page: Math.ceil(totalFilteredTrade / perPage),
-            from: skip + 1,
-            to: skip + processedTrades.length
-        };
-        const safeData = convertBigIntToString(processedTrades);
-
-        return res.status(200).json({
-            status: true,
-            message: 'Trade history fetched successfully.',
-            data: safeData,
-            pagination,
-            analytics: {
-                totalTrade,
-                totalFilteredTrade
-            }
-        });
-
-    } catch (error) {
-        console.error('Error fetching trade history:', error);
-        return res.status(500).json({
-            status: false,
-            message: 'Unable to fetch trade history.',
-            errors: error.message
-        });
+    if (userId) {
+      whereClause.OR = [
+        { seller_id: userId },
+        { buyer_id: userId }
+      ];
     }
+
+    if (req.query.trade_id) {
+      whereClause.trade_id = req.query.trade_id;
+    }
+    if (req.query.cryptocurrency) {
+      whereClause.asset = req.query.cryptocurrency;
+    }
+    if (req.query.tradeStatus) {
+      whereClause.trade_status = req.query.tradeStatus;
+    }
+    if (req.query.tradeType) {
+      whereClause.trade_type = req.query.tradeType;
+    }
+
+    // Counts
+    const totalTrade = await prisma.trades.count();
+    const totalFilteredTrade = await prisma.trades.count({ where: whereClause });
+
+    // Pagination
+    const page = parseInt(req.query.page) || 1;
+    const skip = (page - 1) * perPage;
+
+    const tradeHistories = await prisma.trades.findMany({
+      where: whereClause,
+      skip,
+      take: perPage,
+      orderBy: { trade_id: 'desc' } // or tradeId if camelCase
+    });
+
+    // Post-processing
+    const processedTrades = tradeHistories.map((trade) => {
+      const payment = trade.payment ? JSON.parse(trade.payment) : null;
+      const review = trade.review ? JSON.parse(trade.review) : null;
+
+      let payment_details = trade.payment_details
+        ? `${process.env.BASE_URL || 'http://localhost:5000'}/storage/${trade.payment_details}`
+        : null;
+
+      const role = userId
+        ? trade.buyer_id === userId ? 'buyer' : 'seller'
+        : trade.buyer_id === trade.user_id ? 'buyer' : 'seller';
+
+      return {
+        ...trade,
+        payment,
+        review,
+        payment_details,
+        role
+      };
+    });
+
+    // Pagination metadata
+    const pagination = {
+      current_page: page,
+      per_page: perPage,
+      total: totalFilteredTrade,
+      last_page: Math.ceil(totalFilteredTrade / perPage),
+      from: skip + 1,
+      to: skip + processedTrades.length
+    };
+    const safeData = convertBigIntToString(processedTrades);
+
+    return res.status(200).json({
+      status: true,
+      message: 'Trade history fetched successfully.',
+      data: safeData,
+      pagination,
+      analytics: {
+        totalTrade,
+        totalFilteredTrade
+      }
+    });
+
+  } catch (error) {
+    console.error('Error fetching trade history:', error);
+    return res.status(500).json({
+      status: false,
+      message: 'Unable to fetch trade history.',
+      errors: error.message
+    });
+  }
 };
 
 
@@ -118,6 +118,7 @@ export const getCryptoAd = async (req, res) => {
       activeTrader,
       activeCryptoOffer,
       acceptedOffer,
+      search
     } = req.query;
 
     // ✅ Convert pagination values properly
@@ -136,21 +137,28 @@ export const getCryptoAd = async (req, res) => {
     if (acceptedOffer) where.is_accepted = acceptedOffer === "true";
 
     // ✅ JSON filter (only works if your DB supports JSON)
-// ✅ JSON field filter for payment method
-if (paymentMethod) {
-  where.payment_method = {
-    contains: paymentMethod.toLowerCase(), // ✅ Prisma JSON compatible
-  };
-}
+    // ✅ JSON field filter for payment method
+    if (paymentMethod) {
+      where.payment_method = {
+        contains: paymentMethod.toLowerCase(), // ✅ Prisma JSON compatible
+      };
+    }
 
 
     // ✅ User sub-filters
-    const userWhere = {};
-    if (traderLocation) userWhere.country = traderLocation.toLowerCase();
-    if (activeTrader === "true") {
-      const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
-      userWhere.last_seen = { gte: tenMinutesAgo };
-    }
+    const userWhere = {
+      ...(traderLocation ? { country: traderLocation.toLowerCase() } : {}),
+      ...(activeTrader === "true" ? { last_seen: { gte: new Date(Date.now() - 10 * 60 * 1000) } } : {}),
+      ...(search
+        ? {
+          OR: [
+            { username: { contains: search } },
+            { email: { contains: search } },
+          ],
+        }
+        : {}),
+    };
+
 
     // ✅ Analytics counts
     const [
@@ -206,7 +214,7 @@ if (paymentMethod) {
     return res.json({
       status: true,
       message: "Crypto advertisement fetched successfully.",
-      data:safeData,
+      data: safeData,
       pagination,
       analytics: {
         totalCryptoAds,
@@ -234,7 +242,7 @@ export const updateCryptoAdStatus = async (req, res) => {
   try {
 
     let crypto_ad_id = ad_id;  // FIXED
-  // Validate ID
+    // Validate ID
     if (isNaN(crypto_ad_id)) {
       return res.status(400).json({
         status: false,
@@ -246,7 +254,7 @@ export const updateCryptoAdStatus = async (req, res) => {
     // Fix boolean
     if (is_active === "true") is_active = true;
     if (is_active === "false") is_active = false;
-   if (typeof is_active !== "boolean") {
+    if (typeof is_active !== "boolean") {
       return res.status(400).json({
         status: false,
         message: "Validation failed.",
@@ -333,7 +341,7 @@ export const completeRequestedPendingTrade = async (req, res) => {
           network: network(tradeDetails.asset),
         },
       });
-         
+
       const buyerWallet = await tx.web3_wallets.findFirst({
         where: {
           user_id: tradeDetails.buyer_id,
@@ -341,7 +349,7 @@ export const completeRequestedPendingTrade = async (req, res) => {
           network: network(tradeDetails.asset),
         },
       });
- 
+
       if (!sellerWallet || !buyerWallet) {
         throw new Error("Seller or buyer wallet not found.");
       }
@@ -371,12 +379,12 @@ export const completeRequestedPendingTrade = async (req, res) => {
         status: "success",
         updated_buy: "Internal",
         remark: "By selling the asset",
-        created_at : new Date(),
-    date_time: String(Math.floor(Date.now() / 1000))  // ✔ FIXED
-  
+        created_at: new Date(),
+        date_time: String(Math.floor(Date.now() / 1000))  // ✔ FIXED
+
       };
 
-   const transaction=   await tx.transactions.create({ data: sellerTxnData });
+      const transaction = await tx.transactions.create({ data: sellerTxnData });
 
       // Update Seller Wallet
       await tx.web3_wallets.update({
@@ -386,8 +394,8 @@ export const completeRequestedPendingTrade = async (req, res) => {
             new Prisma.Decimal(tradeDetails.hold_asset)
           ),
           remaining_amount: sellerRemainingAmount,
-          hold_asset:new Prisma.Decimal(sellerWallet.hold_asset).minus(
-           new Prisma.Decimal(tradeDetails.hold_asset)
+          hold_asset: new Prisma.Decimal(sellerWallet.hold_asset).minus(
+            new Prisma.Decimal(tradeDetails.hold_asset)
           ),
           created_at: new Date(),
           updated_at: new Date()
@@ -439,7 +447,7 @@ export const completeRequestedPendingTrade = async (req, res) => {
         status: "success",
         updated_buy: "Internal",
         remark: "By buying the asset",
-    date_time: String(Math.floor(Date.now() / 1000))  // ✔ FIXED
+        date_time: String(Math.floor(Date.now() / 1000))  // ✔ FIXED
       };
 
       await tx.transactions.create({ data: buyerTxnData });
@@ -455,7 +463,7 @@ export const completeRequestedPendingTrade = async (req, res) => {
           internal_deposit: new Prisma.Decimal(buyerWallet.internal_deposit).plus(
             paidAmount
           ),
-            created_at: new Date(),
+          created_at: new Date(),
           updated_at: new Date()
         },
       });

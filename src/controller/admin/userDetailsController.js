@@ -114,14 +114,39 @@ export const getUser = async (req, res) => {
     });
 
 
+    const [depositsCount, withdrawalsCount, totalTransactions] = await Promise.all([
+      // Deposits = transactions jisme credit_amount > 0
+      prisma.transactions.count({
+        where: {
+          user_id: BigInt(id),
+          credit_amount: { gt: 0 },
+        },
+      }),
+      // Withdrawals = transactions jisme debit_amount > 0
+      prisma.transactions.count({
+        where: {
+          user_id: BigInt(id),
+          debit_amount: { gt: 0 },
+        },
+      }),
+      // Total transactions
+      prisma.transactions.count({
+        where: { user_id: BigInt(id) },
+      }),
+    ]);
+    const totalAds = await prisma.crypto_ads.count({
+      where: { user_id: BigInt(id) },
+    });
 
     return res.status(200).json({
       status: true,
       message: "User data fetched successfully",
       data: safeData,
       analytics: {
-        deposits: admin.totalDeposit || 0,
-        withdrawals: admin.totalWithdrawal || 0,
+        deposits: depositsCount,
+        withdrawals: withdrawalsCount,
+        Transactions: totalTransactions,
+        TotalAdvertisements: totalAds,
       },
     });
   } catch (error) {
