@@ -4,7 +4,7 @@ import prisma from "../../config/prismaClient.js";
 import timezone from "dayjs/plugin/timezone.js";
 import path from 'path';
 import fs from 'fs';
-import { Prisma, trades_trade_step } from "@prisma/client";
+import { Prisma, trades_trade_status, trades_trade_step } from "@prisma/client";
 import { userDetails } from "./CryptoAdController.js";
 import { cryptoAsset, fullAssetName, getCurrentTimeInKolkata, network, userDetail } from "../../config/ReusableCode.js";
 import moment from "moment";
@@ -389,7 +389,7 @@ export const giveFeedback = async (req, res) => {
 
     // Parse like to boolean
     const like = req.body?.like === true || req.body?.like === "true";
-    const { trade_id, review } = req.body;
+    const { trade_id, review, crypto_ad_id } = req.body;
     if (!trade_id || typeof like !== "boolean") {
       return res.status(422).json({
         status: false,
@@ -457,6 +457,7 @@ export const giveFeedback = async (req, res) => {
       await prisma.feedback.create({
         data: {
           user_id: BigInt(feedbackToId),
+          crypto_ad_id: crypto_ad_id,
           trade_id: Number(trade_id),
           feedback_from: feedbackFrom,
           feedback_from_id: Number(user.user_id),
@@ -547,7 +548,7 @@ export const getTradeFeedback = async (req, res) => {
 export const updateTradeFeedback = async (req, res) => {
   try {
     const user = req.user; // Assuming user is attached via middleware
-    const { trade_id, like, review } = req.body;
+    const { trade_id, like, review, crypto_ad_id } = req.body;
 
     if (!trade_id || typeof like === "undefined") {
       return res.status(422).json({
@@ -594,6 +595,7 @@ export const updateTradeFeedback = async (req, res) => {
       feedbackDetails = await prisma.feedback.update({
         where: { feedback_id: feedbackDetails.feedback_id },
         data: {
+          crypto_ad_id: BigInt(crypto_ad_id),
           like: Boolean(like),
           dislike: !like,
           review: review ?? null,
@@ -605,6 +607,7 @@ export const updateTradeFeedback = async (req, res) => {
       feedbackDetails = await prisma.feedback.create({
         data: {
           user_id: BigInt(feedbackToId),
+          BigInt: BigInt(crypto_ad_id),
           trade_id: Number(trade_id),
           feedback_from: feedbackFrom,
           feedback_from_id: Number(user.user_id),
@@ -934,6 +937,7 @@ export const updateDispute = async (req, res) => {
           buyer_dispute_time: new Date(),
           seller_dispute_time: new Date(),
           updated_at: new Date(),
+          trade_status: "disputed"
         }
       });
     });
@@ -1487,7 +1491,7 @@ export const sellerUpdateTrade = async (req, res) => {
       });
       io.to(tradeDetails.seller_id.toString()).emit("new_notification", sellerNotification);
       io.to(tradeDetails.buyer_id.toString()).emit("new_notification", buyerNotification);
-    });
+    }, { maxWait: 20000, timeout: 20000 });
 
     const buyer = await prisma.users.findUnique({
       where: { user_id: BigInt(tradeDetails.buyer_id) },

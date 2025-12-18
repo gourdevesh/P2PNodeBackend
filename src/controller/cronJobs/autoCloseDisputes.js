@@ -11,7 +11,8 @@ async function autoCloseDisputes() {
     where: {
       status: "pending",
       created_at: {
-        lte: new Date(Date.now() - 48 * 60 * 1000)
+        lte: new Date(Date.now() - 48 * 60 * 60 * 1000
+        )
       },
     },
     include: {

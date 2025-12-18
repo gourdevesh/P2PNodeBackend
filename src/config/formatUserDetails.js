@@ -16,12 +16,13 @@ export async function formatUserDetails(user, withCountryDetails = true) {
     const idVerified = !!user.id_verified_at;
     const addressVerified = !!user.address_verified_at;
 
-    let countryData = {
-      country: "Unknown",
-      countryCode: "Unknown",
-      city: "Unknown",
-      country_flag: "Unknown",
-    };
+   let countryData = {
+  country: "India",
+  countryCode: "IN",
+  city: "Unknown",
+  country_flag: "https://flagcdn.com/w320/in.png",
+};
+
 
     // 🌐 Fetch location by IP
     if (withCountryDetails && user.loggedIn_device_ip) {

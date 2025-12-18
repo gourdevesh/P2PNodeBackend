@@ -11133,6 +11133,152 @@
                 ]
             }
         },
+"/api/crypto-advertisement/give-crypto-feedback": {
+  "get": {
+    "tags": ["Crypto Advertisement"],
+    "summary": "Get user feedback for crypto advertisement",
+    "description": "Fetch current user's feedback for a crypto advertisement using crypto_ad_id",
+    "operationId": "getCryptoFeedback",
+    "security": [
+      {
+        "bearerAuth": []
+      }
+    ],
+    "parameters": [
+      {
+        "name": "crypto_ad_id",
+        "in": "query",
+        "required": true,
+        "schema": {
+          "type": "number"
+        },
+        "description": "Crypto Advertisement ID",
+        "example": 10
+      },
+      {
+        "name": "like",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "boolean"
+        },
+        "description": "Optional (true = like, false = dislike). Not required for GET.",
+        "example": true
+      }
+    ],
+    "responses": {
+      "200": {
+        "description": "Feedback fetched successfully",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "status": {
+                  "type": "boolean",
+                  "example": true
+                },
+                "message": {
+                  "type": "string",
+                  "example": "Feedback found"
+                },
+                "data": {
+                  "type": "object",
+                  "nullable": true,
+                  "properties": {
+                    "feedback_id": { "type": "number", "example": 12 },
+                    "like": { "type": "boolean", "example": true },
+                    "dislike": { "type": "boolean", "example": false },
+                    "review": { "type": "string", "example": "Smooth trade" },
+                    "created_at": { "type": "string", "format": "date-time" },
+                    "updated_at": { "type": "string", "format": "date-time" },
+                    "user": {
+                      "type": "object",
+                      "properties": {
+                        "user_id": { "type": "number", "example": 5 },
+                        "name": { "type": "string", "example": "Rahul Sharma" },
+                        "profile_image": {
+                          "type": "string",
+                          "example": "https://cdn.app.com/users/rahul.png"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "401": {
+        "description": "Unauthorized",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "status": { "type": "boolean", "example": false },
+                "message": { "type": "string", "example": "User not found" }
+              }
+            }
+          }
+        }
+      },
+      "404": {
+        "description": "Crypto ad not found",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "status": { "type": "boolean", "example": false },
+                "message": { "type": "string", "example": "Crypto ad not found" }
+              }
+            }
+          }
+        }
+      },
+      "422": {
+        "description": "Validation failed",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "status": { "type": "boolean", "example": false },
+                "message": { "type": "string", "example": "Validation failed" },
+                "errors": {
+                  "type": "string",
+                  "example": "crypto_ad_id is required"
+                }
+              }
+            }
+          }
+        }
+      },
+      "500": {
+        "description": "Internal server error",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "status": { "type": "boolean", "example": false },
+                "message": {
+                  "type": "string",
+                  "example": "Failed to fetch feedback"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+,
+
         "/api/crypto-advertisement/my-crypto-ad": {
             "get": {
                 "tags": [
@@ -12253,12 +12399,8 @@
                                         "description": "Type of feedback (Like or Dislike)",
                                         "type": "boolean",
                                         "example": "true"
-                                    },
-                                    "review": {
-                                        "description": "Optional text review",
-                                        "type": "string",
-                                        "example": "Great user, very responsive."
                                     }
+                                  
                                 },
                                 "type": "object"
                             }

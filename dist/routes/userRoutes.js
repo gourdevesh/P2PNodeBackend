@@ -1,5 +1,4 @@
 import express from "express";
-
 import { authenticateUser } from "../middleware/authMiddleware.js";
 import { sendEmailOtp, sendSmsOTP, verifyEmailOtp } from "../controller/OtpController.js";
 import { addNumber, login, logout, logoutFromOtherToken, passwordVerification, register, resetPassword, sendResetLink, updateTwoFA, updateTwoFaSet } from "../controller/user/AuthController.js";
@@ -21,7 +20,7 @@ import { getReport, getUsersReport, storeReport } from "../controller/ReportCont
 import { checkUserStatus } from "../middleware/checkUserStatus.js";
 import { ensureEmailVerified } from "../middleware/ensureEmailVerified.js";
 import { sendOtp } from "../controller/user/SandboxController.js";
-import { createFeedback, getFeedback, giveCryptoFeedback } from "../controller/user/FeedbackController.js";
+import { createFeedback, getFeedback } from "../controller/user/FeedbackController.js";
 import { getCountries, getCountriesCurrency, getCountriesDialingCode, getTimezone } from "../controller/CountryController.js";
 const router = express.Router();
 router.post("/auth/register", formData, register);
@@ -31,7 +30,6 @@ router.post("/send-email-otp", formData, authenticateUser, checkUserStatus, send
 router.post("/send-sms-otp", authenticateUser, checkUserStatus, sendSmsOTP);
 router.post("/send-release-otp", authenticateUser, checkUserStatus, sendReleaseOtp);
 router.post("/verify-release-otp", formData, authenticateUser, checkUserStatus, verifyReleaseOtp);
-
 router.get("/user-details", authenticateUser, checkUserStatus, userDetail);
 router.get("/get-referral-link", authenticateUser, checkUserStatus, getReferralLink);
 router.get("/login-history", authenticateUser, checkUserStatus, loginHistory);
@@ -42,10 +40,8 @@ router.get("/address/get-id-verification-details", authenticateUser, checkUserSt
 router.post("/payment-details/add-payment-details", formData, authenticateUser, checkUserStatus, storePaymentDetails);
 router.get("/payment-details/get-payment-details", authenticateUser, checkUserStatus, getPaymentDetails);
 router.post("/payment-details/add-upi-details", authenticateUser, checkUserStatus, singelUpload.single("qr_code"), addUpiDetails);
-
 router.patch("/payment-details/update-upi-details", validateUpiUpdate, authenticateUser, checkUserStatus, updateUpiDetails);
 router.delete("/payment-details/delete-payment-method", formData, authenticateUser, checkUserStatus, deleteMethod);
-
 router.get("/payment-details/get-upi-details", authenticateUser, checkUserStatus, getUpiDetails);
 router.post("/update-username", formData, authenticateUser, checkUserStatus, validateUsername, updateUsername);
 router.post("/change-password", formData, authenticateUser, checkUserStatus, validateChangePassword, changePassword);
@@ -68,7 +64,7 @@ router.post("/trade/initiate-trade", formData, authenticateUser, checkUserStatus
 router.get("/trade/get-trade-history", authenticateUser, checkUserStatus, getTradeHistory);
 router.post("/trade/give-feedback", formData, authenticateUser, checkUserStatus, giveFeedback);
 router.get("/trade/get-trade-feedback", formData, authenticateUser, checkUserStatus, getTradeFeedback);
-router.post("/trade/update-trade-feedback", formData, authenticateUser, checkUserStatus);
+router.post("/trade/update-trade-feedback", formData, authenticateUser, checkUserStatus, updateTradeFeedback);
 router.post("/trade/cancel-trade", formData, authenticateUser, checkUserStatus, cancelTrade);
 router.post("/trade/update-trade-dispute", formData, authenticateUser, checkUserStatus, updateDispute);
 router.post("/support-tickets/store-ticket", authenticateUser, checkUserStatus, uploadAttachments.array("attachment[]", 5), storeTicket);
@@ -107,17 +103,12 @@ router.post("/trade/update-trade-expired", formData, authenticateUser, checkUser
 router.get("/trade/authenticated-user-trade-history", formData, authenticateUser, checkUserStatus, authenticatedUserTradeHistory);
 router.get("/trade/active-user-trade", formData, authenticateUser, checkUserStatus, activeUserTradeHistory);
 router.get("/trade/complete-user-trade", formData, authenticateUser, checkUserStatus, UserTradeHistory);
-
 router.post("/transaction/convert-asset", formData, authenticateUser, checkUserStatus, convertAsset);
-
 router.post("/transaction/transaction-using-address", formData, authenticateUser, checkUserStatus, transactionUsingAddress);
-
 router.post("/transaction/fee-calculation", formData, authenticateUser, checkUserStatus, feeCalculation);
 router.post("/transaction/update-transaction", formData, authenticateUser, checkUserStatus, updateTransactionUsingAddress);
 router.get("/feedback/get-feedback", authenticateUser, checkUserStatus, getFeedback);
 router.post("/feedback/create-feedback", formData, authenticateUser, checkUserStatus, createFeedback);
-router.get("/crypto-advertisement/give-crypto-feedback", authenticateUser, checkUserStatus, giveCryptoFeedback);
-
 router.get("/countries/currency", authenticateUser, getCountriesCurrency);
 router.get("/countries/dialing-code", authenticateUser, getCountriesDialingCode);
 router.get("/countries/name", authenticateUser, getCountries);

@@ -30,10 +30,24 @@ export const userDetail = async (req, res) => {
     }
 
     const userDetails = await getUserDetails(user, true);
+ const [totalLikes, totalDislikes] = await Promise.all([
+      prisma.feedback.count({
+        where: { user_id: BigInt(userId), like: true },
+      }),
+      prisma.feedback.count({
+        where: { user_id: BigInt(userId), dislike: true },
+      }),
+    ]);
     res.status(200).json({
       status: true,
-      response: userDetails,
-    });
+   response: {
+        ...userDetails,
+        feedback: {
+       total_likes: totalLikes,
+          total_dislikes: totalDislikes,
+        },
+      },
+        });
 
     if (user.country !== userDetails.country?.toLowerCase()) {
       prisma.users.update({
