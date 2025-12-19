@@ -166,6 +166,7 @@ export const register = async (req, res) => {
                 user_level: 0,
                 login_with: 'email',
                 login_status: 'login',
+                last_seen: new Date(),
                 login_count: 1,
                 last_login: new Date(),
                 logged_in_device: req.headers['user-agent'] || null,
@@ -205,6 +206,7 @@ export const register = async (req, res) => {
                 os: deviceData.os,
                 os_version: deviceData.os_version,
                 login_status: 'login',
+                last_seen: new Date(),
                 logged_in_at: new Date(),
             },
         });

@@ -925,7 +925,7 @@ export function userDetails(user) {
         id_verified: user.id_verified,
         address_verified: user.address_verified,
         twoFactorAuth: user.twoFactorAuth,
-        profile_image_url: user.profile_image_url,
+        profile_image: user.profile_image,
         country: user.country,
         country_code: user.country_code,
         city: user.city,

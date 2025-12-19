@@ -1,5 +1,5 @@
 import prisma from "../../config/prismaClient.js";
-import { getAdminDetails } from "../../config/ReusableCode.js";
+import { getAdminDetails, userDetail } from "../../config/ReusableCode.js";
 import { userDetails } from "../admin/FeedbackController.js";
 export const getFeedback = async (req, res) => {
     try {
@@ -224,79 +224,64 @@ export const giveCryptoFeedback = async (req, res) => {
       });
     }
 
-    const cryptoAd = await prisma.crypto_ads.findUnique({
-      where: { crypto_ad_id: BigInt(crypto_ad_id) }
-    });
-
-    if (!cryptoAd) {
-      return res.status(404).json({
-        status: false,
-        message: "Crypto ad not found"
-      });
-    }
-
-    /* 🔹 build dynamic where condition */
+    // Build dynamic where condition
     const whereCondition = {
-      crypto_ad_id: BigInt(crypto_ad_id),
-      feedback_from_id: Number(user.user_id) // Int
+      crypto_ad_id: BigInt(crypto_ad_id)
     };
 
-    // ✅ OPTIONAL like filter
+    // Optional like filter
     if (like !== undefined) {
       const likeBool = like === true || like === "true";
       whereCondition.like = likeBool;
     }
 
-    const feedback = await prisma.feedback.findFirst({
-      where: whereCondition,
-      select: {
-        feedback_id: true,
-        like: true,
-        dislike: true,
-        review: true,
-        created_at: true,
-        updated_at: true,
-        user: {
-          select: {
-            user_id: true,
-            name: true,
-            username:true,
-            email: true,
-            profile_image: true
-          }
-        }
-      }
+    // Fetch all feedbacks for this crypto ad
+    const cryptoFeedbacks = await prisma.feedback.findMany({
+      where: whereCondition
     });
-    const [totalFeedback, positiveFeedback, negativeFeedback] =
-      await Promise.all([
-        prisma.feedback.count({
-          where: { crypto_ad_id: BigInt(crypto_ad_id) }
-        }),
-        prisma.feedback.count({
-          where: {
-            crypto_ad_id: BigInt(crypto_ad_id),
-            like: true
-          }
-        }),
-        prisma.feedback.count({
-          where: {
-            crypto_ad_id: BigInt(crypto_ad_id),
-            dislike: true
-          }
-        })
-      ]);
+
+    if (!cryptoFeedbacks || cryptoFeedbacks.length === 0) {
+      return res.status(404).json({
+        status: false,
+        message: "No feedback found for this crypto ad"
+      });
+    }
+
+    // Map through feedbacks and attach user details
+    const feedbackWithDetails = await Promise.all(
+      cryptoFeedbacks.map(async (feedback) => {
+        const userDetails = await prisma.users.findUnique({
+          where: { user_id: BigInt(feedback.feedback_from_id) }
+        });
+
+        return {
+          ...feedback,
+          feedback_id: feedback.feedback_id.toString(),
+          like: feedback.like ? 1 : 0,
+          dislike: feedback.dislike ? 1 : 0,
+                userDetails: userDetail(userDetails)
+        
+        };
+      })
+    );
+
+    // Counts
+    const totalFeedback = cryptoFeedbacks.length;
+    const positiveFeedback = cryptoFeedbacks.filter(f => f.like).length;
+    const negativeFeedback = cryptoFeedbacks.filter(f => f.dislike).length;
 
     return res.status(200).json({
       status: true,
-      message: feedback ? "Feedback found" : "No feedback found",
- data: {
-    feedback,
-            counts: {
+      message: "Feedback retrieved successfully.",
+      data: {
+        feedbacks: feedbackWithDetails,
+        counts: {
           totalFeedback,
           positiveFeedback,
           negativeFeedback
-        },
-      }    });
+        }
+      }
+    });
 
   } catch (error) {
     console.error(error);

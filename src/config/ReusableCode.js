@@ -1,6 +1,12 @@
 import moment from "moment";
 import axios from 'axios';
-
+import dayjs from "dayjs";
+import relativeTime from "dayjs/plugin/relativeTime.js";
+import utc from "dayjs/plugin/utc.js";
+import timezone from "dayjs/plugin/timezone.js";
+dayjs.extend(relativeTime);
+dayjs.extend(utc);
+dayjs.extend(timezone);
 export const getCryptoLogo = (cryptocurrency = null, req) => {
   try {
     // Base folder for static images
@@ -47,7 +53,7 @@ export function userDetail(user) {
         id_verified: user.id_verified,
         address_verified: user.address_verified,
         twoFactorAuth: user.twoFactorAuth,
-        profile_image_url: user.profile_image_url,
+        profile_image: user.profile_image,
         country: user.country,
         country_code: user.country_code,
         city: user.city,
@@ -58,7 +64,9 @@ export function userDetail(user) {
         login_with: user.login_with,
         login_status: user.login_status,
         last_login: user.last_login,
-        last_seen_at: user.last_seen_at,
+             last_seen_at: user.last_seen
+                        ? dayjs(user.last_seen).fromNow()
+                        : "Unknown",
         last_login_duration: user.last_login_duration,
         user_status: user.user_status
     };

@@ -5,7 +5,13 @@ import axios from "axios";
 import bcrypt from "bcrypt";
 import { body, validationResult } from "express-validator";
 import path from "path";
-
+import dayjs from "dayjs";
+import relativeTime from "dayjs/plugin/relativeTime.js";
+import utc from "dayjs/plugin/utc.js";
+import timezone from "dayjs/plugin/timezone.js";
+dayjs.extend(relativeTime);
+dayjs.extend(utc);
+dayjs.extend(timezone);
 // Controller function
 export const userDetail = async (req, res) => {
   try {
@@ -29,7 +35,7 @@ export const userDetail = async (req, res) => {
       });
     }
 
-    const userDetails = await getUserDetails(user, true);
+    const userDetails =  getUserDetails(user);
  const [totalLikes, totalDislikes] = await Promise.all([
       prisma.feedback.count({
         where: { user_id: BigInt(userId), like: true },
@@ -66,19 +72,53 @@ export const userDetail = async (req, res) => {
 };
 
 
-// Example getUserDetails function
-async function getUserDetails(user, includeSensitive = false) {
-  const cleanedUser = JSON.parse(
-    JSON.stringify(user, (_, value) =>
-      typeof value === "bigint" ? value.toString() : value
-    )
-  );
+// // Example getUserDetails function
+// async function getUserDetails(user, includeSensitive = false) {
+//   const cleanedUser = JSON.parse(
+//     JSON.stringify(user, (_, value) =>
+//       typeof value === "bigint" ? value.toString() : value
+//     )
+//   );
 
-  // Remove sensitive fields if needed
-  delete cleanedUser.password;
-  delete cleanedUser.remember_token;
+//   // Remove sensitive fields if needed
+//   delete cleanedUser.password;
+//   delete cleanedUser.remember_token;
 
-  return cleanedUser;
+//   return cleanedUser;
+// }
+
+
+export function getUserDetails(user) {
+    return {
+        user_id: user.user_id,
+        name: user.name,
+        username: user.username,
+        username_changed: user.username_changed,
+        email: user.email,
+        dialing_code: user.dialing_code,
+        phone_number: user.phone_number,
+        email_verified: user.email_verified,
+        phone_verified: user.phone_verified,
+        id_verified: user.id_verified,
+        address_verified: user.address_verified,
+        twoFactorAuth: user.twoFactorAuth,
+        profile_image: user.profile_image,
+        country: user.country,
+        country_code: user.country_code,
+        city: user.city,
+        country_flag_url: user.country_flag_url,
+        preferred_currency: user.preferred_currency,
+        preferred_timezone: user.preferred_timezone,
+        bio: user.bio,
+        login_with: user.login_with,
+        login_status: user.login_status,
+        last_login: user.last_login,
+             last_seen_at: user.last_seen
+                        ? dayjs(user.last_seen).fromNow()
+                        : "online",
+        last_login_duration: user.last_login_duration,
+        user_status: user.user_status
+    };
 }
 
 

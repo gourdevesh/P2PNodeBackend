@@ -756,7 +756,7 @@ export const logout = async (req, res) => {
                 // UPDATE USER STATUS IF NO ACTIVE TOKENS
                 await tx.users.update({
                     where: { user_id: BigInt(user.user_id) },
-                    data: { login_status: "logout", two_fa_otp_verified: false },
+                    data: { login_status: "logout", two_fa_otp_verified: false,  last_seen: new Date()},
                 });
             }
             // ------------------------
