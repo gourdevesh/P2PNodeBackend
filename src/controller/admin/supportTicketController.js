@@ -750,7 +750,7 @@ export const adminResolveDispute = async (req, res) => {
                     trade_step: "THREE",
                     is_disputed: false,
                     trade_remark: remark || null,
-                    status_changed_at: new Date()
+                    status_changed_at: new Date(),
                 }
             });
 
@@ -1028,7 +1028,7 @@ export const cancelTradeByAdmin = async (req, res) => {
                         hold_asset: 0,
                         trade_status: "cancel",
                         buyer_status: "cancel",
-                        status_changed_at: getCurrentTimeInKolkata(),
+                    status_changed_at: new Date(),
                         time_limit: null,
                     },
                 });

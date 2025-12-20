@@ -1813,7 +1813,7 @@ export const UserTradeHistory = async (req, res) => {
         { seller_id: String(user.user_id) },
 
       ],
-      trade_status: { notIn: ["pending", "processing","disputed"] }   // 🔥 Added filter
+      trade_status: { notIn: ["pending", "processing", "disputed"] }   // 🔥 Added filter
 
     };
 

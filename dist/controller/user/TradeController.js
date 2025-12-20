@@ -899,6 +899,8 @@ export const buyerUpdateTrade = async (req, res) => {
                     data: {
                         trade_status: "expired",
                         trade_remark: "Trade time limit expired.",
+                      status_changed_at: new Date()
+
                     },
                 });
                 const sellerWallet = await tx.web3_wallets.findFirst({
