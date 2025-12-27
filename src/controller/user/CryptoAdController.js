@@ -938,7 +938,8 @@ export function userDetails(user) {
         last_login: user.last_login,
         last_seen_at: user.last_seen_at,
         last_login_duration: user.last_login_duration,
-        user_status: user.user_status
+        user_status: user.user_status,
+        display_name_preference:user.display_name_preference
     };
 }
 

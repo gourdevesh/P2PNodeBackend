@@ -3,7 +3,7 @@ import express from "express";
 import { authenticateUser } from "../middleware/authMiddleware.js";
 import { sendEmailOtp, sendSmsOTP, verifyEmailOtp } from "../controller/OtpController.js";
 import { addNumber, login, logout, logoutFromOtherToken, passwordVerification, register, resetPassword, sendResetLink, updateTwoFA, updateTwoFaSet } from "../controller/user/AuthController.js";
-import { changePassword, getReferralLink, getSecurityQuestion, loginHistory, preferredCurrency, preferredTimezone, securityQuestion, updateBio, updateProfileImage, updateUsername, userDetail } from "../controller/user/UserController.js";
+import { changePassword, getReferralLink, getSecurityQuestion, loginHistory, preferredCurrency, preferredTimezone, securityQuestion, updateBio, updateDisplayNamePreference, updateProfileImage, updateUsername, userDetail } from "../controller/user/UserController.js";
 import { addressVerification, getAddressVerification, getIdDetails, storeAddress } from "../controller/user/AddressVerificationController.js";
 import { singelUpload, upload, uploadAttachments } from "../middleware/upload.js";
 import { addUpiDetails, deleteMethod, getPaymentDetails, getUpiDetails, storePaymentDetails, updateIsPrimary, updatePaymentDetails, updateUpiDetails } from "../controller/user/PaymentController.js";
@@ -32,6 +32,7 @@ router.post("/send-sms-otp", authenticateUser, checkUserStatus, sendSmsOTP);
 router.post("/send-release-otp", authenticateUser, checkUserStatus, sendReleaseOtp);
 router.post("/verify-release-otp", formData, authenticateUser, checkUserStatus, verifyReleaseOtp);
 
+router.post("/display-name-preference", authenticateUser, updateDisplayNamePreference);
 router.get("/user-details", authenticateUser, checkUserStatus, userDetail);
 router.get("/get-referral-link", authenticateUser, checkUserStatus, getReferralLink);
 router.get("/login-history", authenticateUser, checkUserStatus, loginHistory);

@@ -88,6 +88,7 @@ export function getUserDetails(user) {
         preferred_currency: user.preferred_currency,
         preferred_timezone: user.preferred_timezone,
         bio: user.bio,
+        display_name_preference: user.display_name_preference,
         login_with: user.login_with,
         login_status: user.login_status,
         last_login: user.last_login,

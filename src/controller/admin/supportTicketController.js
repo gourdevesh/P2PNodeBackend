@@ -487,35 +487,35 @@ export const sendEvidenceRequiredEmail = async (req, res) => {
             platform_name: "CryptoXchange",
             evidence_deadline_hours: evidence_deadline_hours || 24
         });
-           const buyerId = trade.buyer_id;
-    const sellerId = trade.seller_id;
+        const buyerId = trade.buyer_id;
+        const sellerId = trade.seller_id;
 
-    // Create notifications
-    const buyerNotification = await prisma.notifications.create({
-      data: {
-        user_id: buyerId,
-        title: "Evidence Required",
-        message: `Admin has requested additional evidence for Trade #${trade_id}.`,
-        type: "support",
-        operation_id: trade.trade_id.toString(),
-        created_at: new Date(),
-      },
-    });
+        // Create notifications
+        const buyerNotification = await prisma.notifications.create({
+            data: {
+                user_id: buyerId,
+                title: "Evidence Required",
+                message: `Admin has requested additional evidence for Trade #${trade_id}.`,
+                type: "support",
+                operation_id: trade.trade_id.toString(),
+                created_at: new Date(),
+            },
+        });
 
-    const sellerNotification = await prisma.notifications.create({
-      data: {
-        user_id: sellerId,
-        title: "Evidence Required",
-        message: `Admin has requested additional evidence for Trade #${trade_id}.`,
-        type: "support",
-        operation_id: trade.trade_id.toString(),
-        created_at: new Date(),
-      },
-    });
+        const sellerNotification = await prisma.notifications.create({
+            data: {
+                user_id: sellerId,
+                title: "Evidence Required",
+                message: `Admin has requested additional evidence for Trade #${trade_id}.`,
+                type: "support",
+                operation_id: trade.trade_id.toString(),
+                created_at: new Date(),
+            },
+        });
 
-    // Emit notifications via socket
-    io.to(buyerId.toString()).emit("new_notification", buyerNotification);
-    io.to(sellerId.toString()).emit("new_notification", sellerNotification);
+        // Emit notifications via socket
+        io.to(buyerId.toString()).emit("new_notification", buyerNotification);
+        io.to(sellerId.toString()).emit("new_notification", sellerNotification);
 
         return res.json({
             status: true,
@@ -532,316 +532,317 @@ export const sendEvidenceRequiredEmail = async (req, res) => {
 };
 
 
-export const adminResolveDispute = async (req, res) => {
-    const admin = req.user;         // ADMIN
-    const D = (n) => new Prisma.Decimal(n);
+    export const adminResolveDispute = async (req, res) => {
+        const admin = req.user;         // ADMIN
+        const D = (n) => new Prisma.Decimal(n);
 
-    try {
-        const { trade_id, tradeId, decision, remark } = req.body;
-        console.log("tradeId4", tradeId)
+        try {
+            const { trade_id, tradeId, decision, remark } = req.body;
+            console.log("tradeId4", tradeId)
 
-        // if (!trade_id || isNaN(trade_id)) {
-        //   return res.status(422).json({
-        //     status: false,
-        //     message: "Trade ID required"
-        //   });
-        // }
-        console.log("trade_id77", trade_id)
+            // if (!trade_id || isNaN(trade_id)) {
+            //   return res.status(422).json({
+            //     status: false,
+            //     message: "Trade ID required"
+            //   });
+            // }
+            console.log("trade_id77", trade_id)
 
-        if (!["buyer", "seller"].includes(decision)) {
-            return res.status(422).json({
-                status: false,
-                message: "Decision must be buyer or seller"
-            });
-        }
-
-        // ===============================
-        // GET TRADE DETAILS
-        // ===============================
-        const trade = await prisma.trades.findUnique({
-            where: { trade_id: BigInt(trade_id) }
-        });
-
-        if (!trade)
-            return res.status(404).json({ status: false, message: "Trade not found" });
-
-        if (!trade.is_disputed)
-            return res.status(422).json({
-                status: false,
-                message: "No dispute exists for this trade"
-            });
-
-        const buyerId = BigInt(trade.buyer_id);
-        const sellerId = BigInt(trade.seller_id);
-
-        // ===============================
-        // TRANSACTION START
-        // ===============================
-        await prisma.$transaction(async (tx) => {
-
-            // GET ASSET DETAILS
-            const adminAsset = await tx.admin_assets.findFirst({
-                where: {
-                    asset: trade.asset,
-                    network: fullAssetName(trade.asset)
-                }
-            });
-
-            if (!adminAsset) throw new Error("Asset not configured");
-
-            // --------------------------
-            // CASE 1: Decision → BUYER (Crypto RELEASE to buyer)
-            // --------------------------
-            if (decision === "buyer") {
-                const buyerWallet = await tx.web3_wallets.findFirst({
-                    where: {
-                        user_id: buyerId,
-                        asset: cryptoAsset(trade.asset),
-                        network: network(trade.asset)
-                    }
-                });
-
-                const sellerWallet = await tx.web3_wallets.findFirst({
-                    where: {
-                        user_id: sellerId,
-                        asset: cryptoAsset(trade.asset),
-                        network: network(trade.asset)
-                    }
-                });
-
-                if (!buyerWallet || !sellerWallet)
-                    throw new Error("Wallets not found");
-
-                // Seller → Buyer Asset Transfer
-                const sellerRemaining = D(sellerWallet.remaining_amount).sub(
-                    D(trade.hold_asset)
-                );
-
-                await tx.transactions.create({
-                    data: {
-                        user_id: sellerId,
-                        txn_type: "internal",
-                        from_address: sellerWallet.wallet_address,
-                        to_address: buyerWallet.wallet_address,
-                        txn_hash_id: genTxnHash(sellerId),
-                        asset: sellerWallet.asset,
-                        network: sellerWallet.network,
-                        debit_amount: dec(trade.hold_asset),
-                        credit_amount: 0,
-                        remaining_amount: sellerRemaining,
-                        method: "send",
-                        status: "success",
-                        remark: "Dispute resolved - admin released asset to buyer",
-                        date_time: String(Date.now()),
-                        created_at: new Date()
-                    }
-                });
-
-                await tx.web3_wallets.update({
-                    where: { wallet_id: BigInt(sellerWallet.wallet_id) },
-                    data: {
-                        withdrawal_amount:
-                            Number(sellerWallet.withdrawal_amount) + Number(trade.hold_asset),
-                        remaining_amount: Number(sellerRemaining),
-                        hold_asset: Number(sellerWallet.hold_asset) - Number(trade.hold_asset)
-                    }
-                });
-
-                // ADMIN FEE CALC
-                const { transferFee, transferPercentage } = feeDetails(
-                    adminAsset.withdrawal_fee_type,
-                    adminAsset.withdrawal_fee,
-                    trade.hold_asset
-                );
-
-                const paidAmount = trade.hold_asset - transferFee;
-
-                const buyerRemaining = D(buyerWallet.remaining_amount).add(
-                    D(paidAmount)
-                );
-
-                await tx.transactions.create({
-                    data: {
-                        user_id: buyerId,
-                        txn_type: "internal",
-                        from_address: sellerWallet.wallet_address,
-                        to_address: buyerWallet.wallet_address,
-                        txn_hash_id: genTxnHash(buyerId),
-                        asset: buyerWallet.asset,
-                        network: buyerWallet.network,
-                        credit_amount: dec(trade.hold_asset),
-                        transfer_fee: dec(transferFee),
-                        transfer_percentage: transferPercentage,
-                        paid_amount: paidAmount,
-                        remaining_amount: buyerRemaining,
-                        method: "receive",
-                        status: "success",
-                        date_time: String(Date.now()),
-                        remark: "Dispute resolved - asset credited",
-                        created_at: new Date()
-                    }
-                });
-
-                await tx.web3_wallets.update({
-                    where: { wallet_id: BigInt(buyerWallet.wallet_id) },
-                    data: {
-                        deposit_amount:
-                            Number(buyerWallet.deposit_amount) + Number(paidAmount),
-                        internal_deposit:
-                            Number(buyerWallet.internal_deposit) + Number(paidAmount),
-                        remaining_amount: Number(buyerRemaining)
-                    }
+            if (!["buyer", "seller"].includes(decision)) {
+                return res.status(422).json({
+                    status: false,
+                    message: "Decision must be buyer or seller"
                 });
             }
 
-            // --------------------------
-            // CASE 2: Decision → SELLER (TRADE CANCEL + ASSET BACK TO SELLER)
-            // --------------------------
-            if (decision === "seller") {
-                const sellerWallet = await tx.web3_wallets.findFirst({
-                    where: {
-                        user_id: sellerId,
-                        asset: cryptoAsset(trade.asset),
-                        network: network(trade.asset)
-                    }
-                });
-
-                if (!sellerWallet) throw new Error("Seller wallet not found");
-
-                const sellerRemaining = D(sellerWallet.remaining_amount).add(
-                    D(trade.hold_asset)
-                );
-
-                // Return hold amount to seller
-                await tx.web3_wallets.update({
-                    where: { wallet_id: BigInt(sellerWallet.wallet_id) },
-                    data: {
-                        remaining_amount: Number(sellerRemaining),
-                        hold_asset:
-                            Number(sellerWallet.hold_asset) - Number(trade.hold_asset)
-                    }
-                });
-
-                await tx.transactions.create({
-                    data: {
-                        user_id: sellerId,
-                        txn_type: "internal",
-                        credit_amount: dec(trade.hold_asset),
-                        debit_amount: 0,
-                        asset: sellerWallet.asset,
-                        network: sellerWallet.network,
-                        from_address: "system",
-                        to_address: sellerWallet.wallet_address,
-                        remaining_amount: sellerRemaining,
-                        status: "success",
-                        date_time: String(Date.now()),
-                        remark: "Dispute resolved - asset returned to seller",
-                        created_at: new Date()
-                    }
-                });
-            }
-
-            // UPDATE TRADE STATUS
-            await tx.trades.update({
-                where: { trade_id: BigInt(trade.trade_id) },
-                data: {
-
-                    trade_status: decision === "buyer" ? "success" : "cancel",
-                    trade_step: "THREE",
-                    is_disputed: false,
-                    trade_remark: remark || null,
-                    status_changed_at: new Date(),
-                }
+            // ===============================
+            // GET TRADE DETAILS
+            // ===============================
+            const trade = await prisma.trades.findUnique({
+                where: { trade_id: BigInt(trade_id) }
             });
 
-            const supportTicket = await tx.support_tickets.updateMany({
-                where: {
-                    trades: {
-                        some: {
-                            trade_id: BigInt(trade.trade_id),
+            if (!trade)
+                return res.status(404).json({ status: false, message: "Trade not found" });
+
+            if (!trade.is_disputed)
+                return res.status(422).json({
+                    status: false,
+                    message: "No dispute exists for this trade"
+                });
+
+            const buyerId = BigInt(trade.buyer_id);
+            const sellerId = BigInt(trade.seller_id);
+
+            // ===============================
+            // TRANSACTION START
+            // ===============================
+            await prisma.$transaction(async (tx) => {
+
+                // GET ASSET DETAILS
+                const adminAsset = await tx.admin_assets.findFirst({
+                    where: {
+                        asset: trade.asset,
+                        network: fullAssetName(trade.asset)
+                    }
+                });
+
+                if (!adminAsset) throw new Error("Asset not configured");
+
+                // --------------------------
+                // CASE 1: Decision → BUYER (Crypto RELEASE to buyer)
+                // --------------------------
+                if (decision === "buyer") {
+                    const buyerWallet = await tx.web3_wallets.findFirst({
+                        where: {
+                            user_id: buyerId,
+                            asset: cryptoAsset(trade.asset),
+                            network: network(trade.asset)
+                        }
+                    });
+
+                    const sellerWallet = await tx.web3_wallets.findFirst({
+                        where: {
+                            user_id: sellerId,
+                            asset: cryptoAsset(trade.asset),
+                            network: network(trade.asset)
+                        }
+                    });
+
+                    if (!buyerWallet || !sellerWallet)
+                        throw new Error("Wallets not found");
+
+                    // Seller → Buyer Asset Transfer
+                    const sellerRemaining = D(sellerWallet.remaining_amount).sub(
+                        D(trade.hold_asset)
+                    );
+
+                    await tx.transactions.create({
+                        data: {
+                            user_id: sellerId,
+                            txn_type: "internal",
+                            from_address: sellerWallet.wallet_address,
+                            to_address: buyerWallet.wallet_address,
+                            txn_hash_id: genTxnHash(sellerId),
+                            asset: sellerWallet.asset,
+                            network: sellerWallet.network,
+                            debit_amount: dec(trade.hold_asset),
+                            credit_amount: 0,
+                            remaining_amount: sellerRemaining,
+                            method: "send",
+                            status: "success",
+                            remark: "Dispute resolved - admin released asset to buyer",
+                            date_time: String(Date.now()),
+                            created_at: new Date()
+                        }
+                    });
+
+                    await tx.web3_wallets.update({
+                        where: { wallet_id: BigInt(sellerWallet.wallet_id) },
+                        data: {
+                            withdrawal_amount:
+                                Number(sellerWallet.withdrawal_amount) + Number(trade.hold_asset),
+                            remaining_amount: Number(sellerRemaining),
+                            hold_asset: Number(sellerWallet.hold_asset) - Number(trade.hold_asset)
+                        }
+                    });
+
+                    // ADMIN FEE CALC
+                    const { transferFee, transferPercentage } = feeDetails(
+                        adminAsset.withdrawal_fee_type,
+                        adminAsset.withdrawal_fee,
+                        trade.hold_asset
+                    );
+
+                    const paidAmount = trade.hold_asset - transferFee;
+
+                    const buyerRemaining = D(buyerWallet.remaining_amount).add(
+                        D(paidAmount)
+                    );
+
+                    await tx.transactions.create({
+                        data: {
+                            user_id: buyerId,
+                            txn_type: "internal",
+                            from_address: sellerWallet.wallet_address,
+                            to_address: buyerWallet.wallet_address,
+                            txn_hash_id: genTxnHash(buyerId),
+                            asset: buyerWallet.asset,
+                            network: buyerWallet.network,
+                            credit_amount: dec(trade.hold_asset),
+                            transfer_fee: dec(transferFee),
+                            transfer_percentage: transferPercentage,
+                            paid_amount: paidAmount,
+                            remaining_amount: buyerRemaining,
+                            method: "receive",
+                            status: "success",
+                            date_time: String(Date.now()),
+                            remark: "Dispute resolved - asset credited",
+                            created_at: new Date()
+                        }
+                    });
+
+                    await tx.web3_wallets.update({
+                        where: { wallet_id: BigInt(buyerWallet.wallet_id) },
+                        data: {
+                            deposit_amount:
+                                Number(buyerWallet.deposit_amount) + Number(paidAmount),
+                            internal_deposit:
+                                Number(buyerWallet.internal_deposit) + Number(paidAmount),
+                            remaining_amount: Number(buyerRemaining)
+                        }
+                    });
+                }
+
+                // --------------------------
+                // CASE 2: Decision → SELLER (TRADE CANCEL + ASSET BACK TO SELLER)
+                // --------------------------
+                if (decision === "seller") {
+                    const sellerWallet = await tx.web3_wallets.findFirst({
+                        where: {
+                            user_id: sellerId,
+                            asset: cryptoAsset(trade.asset),
+                            network: network(trade.asset)
+                        }
+                    });
+
+                    if (!sellerWallet) throw new Error("Seller wallet not found");
+
+                    const sellerRemaining = D(sellerWallet.remaining_amount).add(
+                        D(trade.hold_asset)
+                    );
+
+                    // Return hold amount to seller
+                    await tx.web3_wallets.update({
+                        where: { wallet_id: BigInt(sellerWallet.wallet_id) },
+                        data: {
+                            remaining_amount: Number(sellerRemaining),
+                            hold_asset:
+                                Number(sellerWallet.hold_asset) - Number(trade.hold_asset)
+                        }
+                    });
+
+                    await tx.transactions.create({
+                        data: {
+                            user_id: sellerId,
+                            txn_type: "internal",
+                            credit_amount: dec(trade.hold_asset),
+                            debit_amount: 0,
+                            asset: sellerWallet.asset,
+                            network: sellerWallet.network,
+                            from_address: "system",
+                            to_address: sellerWallet.wallet_address,
+                            remaining_amount: sellerRemaining,
+                            status: "success",
+                            date_time: String(Date.now()),
+                            remark: "Dispute resolved - asset returned to seller",
+                            created_at: new Date()
+                        }
+                    });
+                }
+
+                // UPDATE TRADE STATUS
+                await tx.trades.update({
+                    where: { trade_id: BigInt(trade.trade_id) },
+                    data: {
+
+                        trade_status: decision === "buyer" ? "disputedSuccess" : "cancel",
+                        trade_step: "FOUR",
+                         dispute_winner: decision, 
+                        is_disputed: false,
+                        trade_remark: remark || null,
+                        status_changed_at: new Date(),
+                    }
+                });
+
+                const supportTicket = await tx.support_tickets.updateMany({
+                    where: {
+                        trades: {
+                            some: {
+                                trade_id: BigInt(trade.trade_id),
+                            },
                         },
                     },
-                },
-                data: {
-                    status: "resolved",
-                    result: decision,
-                    updated_at: new Date(),
-                },
+                    data: {
+                        status: "resolved",
+                        result: decision,
+                        updated_at: new Date(),
+                    },
+                });
+                // NOTIFICATIONS
+                const buyerNotification = await tx.notifications.create({
+                    data: {
+                        user_id: buyerId,
+                        title: "Dispute Resolved",
+                        message:
+                            decision === "buyer"
+                                ? "Decision in your favour. Asset has been released."
+                                : "Decision in seller’s favour. Trade cancelled.",
+                        type: "support",
+                        operation_id: trade.trade_id.toString(),
+                        created_at: new Date()
+                    }
+                });
+
+                const notificationSeller = await tx.notifications.create({
+                    data: {
+                        user_id: sellerId,
+                        title: "Dispute Resolved",
+                        message:
+                            decision === "seller"
+                                ? "Decision in your favour. Asset returned to you."
+                                : "Decision in buyer’s favour. Asset released.",
+                        type: "support",
+                        operation_id: trade.trade_id.toString(),
+                        created_at: new Date()
+                    }
+                });
+
+                io.to(buyerNotification.user_id.toString()).emit("new_notification", buyerNotification);
+                io.to(notificationSeller.user_id.toString()).emit("new_notification", notificationSeller);
             });
-            // NOTIFICATIONS
-            const buyerNotification = await tx.notifications.create({
-                data: {
-                    user_id: buyerId,
-                    title: "Dispute Resolved",
-                    message:
-                        decision === "buyer"
-                            ? "Decision in your favour. Asset has been released."
-                            : "Decision in seller’s favour. Trade cancelled.",
-                    type: "support",
-                    operation_id: trade.trade_id.toString(),
-                    created_at: new Date()
-                }
+
+            // Fetch buyer & seller info
+            const buyerUser = await prisma.users.findUnique({ where: { user_id: BigInt(trade.buyer_id) } });
+            const sellerUser = await prisma.users.findUnique({ where: { user_id: BigInt(trade.seller_id) } });
+
+            // Send email to buyer
+            await sendTradeEmail("DISPUTE_RESOLVED_BUYER", buyerUser?.email, {
+                trade_id: trade.trade_id,
+                user_name: buyerUser?.username || "Buyer",
+                amount_crypto: trade.hold_asset,
+                asset: trade.asset,
+                amount_fiat: trade.buy_value, // or trade.buy_value * trade.buy_amount if you want total
+                counterparty_name: sellerUser?.username || "Seller",
+                platform_name: "YourPlatform",
             });
 
-            const notificationSeller = await tx.notifications.create({
-                data: {
-                    user_id: sellerId,
-                    title: "Dispute Resolved",
-                    message:
-                        decision === "seller"
-                            ? "Decision in your favour. Asset returned to you."
-                            : "Decision in buyer’s favour. Asset released.",
-                    type: "support",
-                    operation_id: trade.trade_id.toString(),
-                    created_at: new Date()
-                }
+            // Send email to seller
+            await sendTradeEmail("DISPUTE_RESOLVED_SELLER", sellerUser?.email, {
+                trade_id: trade.trade_id,
+                user_name: sellerUser?.username || "Seller",
+                amount_crypto: trade.hold_asset,
+                asset: trade.asset,
+                amount_fiat: trade.buy_value, // same as above
+                side: "Seller",
+                platform_name: "YourPlatform",
             });
 
-            io.to(buyerNotification.user_id.toString()).emit("new_notification", buyerNotification);
-            io.to(notificationSeller.user_id.toString()).emit("new_notification", notificationSeller);
-        });
-
-        // Fetch buyer & seller info
-        const buyerUser = await prisma.users.findUnique({ where: { user_id: BigInt(trade.buyer_id) } });
-        const sellerUser = await prisma.users.findUnique({ where: { user_id: BigInt(trade.seller_id) } });
-
-        // Send email to buyer
-        await sendTradeEmail("DISPUTE_RESOLVED_BUYER", buyerUser?.email, {
-            trade_id: trade.trade_id,
-            user_name: buyerUser?.username || "Buyer",
-            amount_crypto: trade.hold_asset,
-            asset: trade.asset,
-            amount_fiat: trade.buy_value, // or trade.buy_value * trade.buy_amount if you want total
-            counterparty_name: sellerUser?.username || "Seller",
-            platform_name: "YourPlatform",
-        });
-
-        // Send email to seller
-        await sendTradeEmail("DISPUTE_RESOLVED_SELLER", sellerUser?.email, {
-            trade_id: trade.trade_id,
-            user_name: sellerUser?.username || "Seller",
-            amount_crypto: trade.hold_asset,
-            asset: trade.asset,
-            amount_fiat: trade.buy_value, // same as above
-            side: "Seller",
-            platform_name: "YourPlatform",
-        });
 
 
+            return res.json({
+                status: true,
+                message: "Dispute resolved successfully by admin"
+            });
 
-        return res.json({
-            status: true,
-            message: "Dispute resolved successfully by admin"
-        });
-
-    } catch (err) {
-        return res.status(500).json({
-            status: false,
-            message: "Unable to resolve dispute",
-            errors: err.message
-        });
-    }
-};
+        } catch (err) {
+            return res.status(500).json({
+                status: false,
+                message: "Unable to resolve dispute",
+                errors: err.message
+            });
+        }
+    };
 
 export const closeDisputeByAdmin = async (req, res) => {
     try {
@@ -1028,7 +1029,7 @@ export const cancelTradeByAdmin = async (req, res) => {
                         hold_asset: 0,
                         trade_status: "cancel",
                         buyer_status: "cancel",
-                    status_changed_at: new Date(),
+                        status_changed_at: new Date(),
                         time_limit: null,
                     },
                 });

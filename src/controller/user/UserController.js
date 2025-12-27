@@ -34,6 +34,7 @@ export const userDetail = async (req, res) => {
         message: "User not found",
       });
     }
+    console.log("user",user)
 
     const userDetails =  await getUserDetails(user,true);
  const [totalLikes, totalDislikes] = await Promise.all([
@@ -708,6 +709,42 @@ export const preferredTimezone = async (req, res) => {
       status: false,
       message: "Unable to update preferred timezone.",
       errors: error.message || error,
+    });
+  }
+};
+
+export const updateDisplayNamePreference = async (req, res) => {
+  try {
+    const userId = req.user.user_id; // auth middleware se
+    const { display_name_preference } = req.body;
+
+    const allowedValues = ["firstName", "fullName", "hide"];
+
+    if (!allowedValues.includes(display_name_preference)) {
+      return res.status(400).json({
+        status: false,
+        message: "Invalid display name preference",
+      });
+    }
+
+        const updatedUser = await prisma.users.update({
+      where: { user_id: userId },
+      data: {
+        display_name_preference,
+      },
+    });
+
+   
+    return res.json({
+      status: true,
+      message: "Display name preference updated successfully",
+    });
+
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({
+      status: false,
+      message: "Internal server error",
     });
   }
 };
